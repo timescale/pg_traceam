@@ -3,12 +3,17 @@
 #include <access/amapi.h>
 #include <access/heapam.h>
 #include <access/tableam.h>
+#include <catalog/heap.h>
 #include <catalog/index.h>
+#include <catalog/namespace.h>
+#include <catalog/pg_am_d.h>
+#include <catalog/pg_authid.h>
 #include <commands/tablespace.h>
 #include <commands/vacuum.h>
 #include <executor/tuptable.h>
 #include <miscadmin.h>
 #include <utils/rel.h>
+#include <utils/syscache.h>
 
 #include "tuple.h"
 
@@ -35,8 +40,10 @@ static const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
   return &TTSOpsTraceTuple;
 }
 
-static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
-                                        int nkeys, ScanKey key,
+static TableScanDesc traceam_scan_begin(Relation relation,
+                                        Snapshot snapshot,
+                                        int nkeys,
+                                        ScanKey key,
                                         ParallelTableScanDesc parallel_scan,
                                         uint32 flags) {
   TableScanDesc scan;
@@ -198,9 +205,38 @@ static void traceam_relation_set_new_filenode(Relation relation,
                                               char persistence,
                                               TransactionId *freezeXid,
                                               MultiXactId *minmulti) {
+  char inner_relname[NAMEDATALEN];
+
   TRACE("relation: %s, newrnode: {spcNode: %d, dbNode: %d, relNode: %d}",
         RelationGetRelationName(relation), newrnode->spcNode, newrnode->dbNode,
         newrnode->relNode);
+  /* Create inner heap table using the relfilenode, not the
+     relid. This is because the relfilenode might change so we should
+     mirror this internally as well. */
+  snprintf(inner_relname, sizeof(inner_relname), "inner_%u", newrnode->relNode);
+
+  heap_create_with_catalog(
+      inner_relname,
+      /* relnamespace */ get_namespace_oid("traceam", false),
+      newrnode->spcNode,
+      /* relid */ InvalidOid,
+      /* reltypeid */ InvalidOid,
+      /* reloftypeid */ InvalidOid,
+      /* ownerid */ relation->rd_rel->relowner,
+      /* accessmtd */ HEAP_TABLE_AM_OID,
+      /* tupdesc */ relation->rd_att,
+      /* cooked_constraints */ NIL,
+      RELKIND_RELATION,
+      persistence,
+      relation->rd_rel->relisshared,
+      RelationIsMapped(relation),
+      ONCOMMIT_NOOP,
+      /* reloptions */ (Datum)0,
+      /* use_user_acl */ false,
+      /* allow_system_table_mods */ false,
+      /* is_internal */ false,
+      /* relrewrite */ InvalidOid,
+      /* typaddress */ NULL);
 }
 
 static void traceam_relation_nontransactional_truncate(Relation relation) {
@@ -209,18 +245,23 @@ static void traceam_relation_nontransactional_truncate(Relation relation) {
 static void traceam_copy_data(Relation relation, const RelFileNode *newrnode) {
 }
 
-static void traceam_copy_for_cluster(Relation old_table, Relation new_table,
-                                     Relation OldIndex, bool use_sort,
+static void traceam_copy_for_cluster(Relation old_table,
+                                     Relation new_table,
+                                     Relation OldIndex,
+                                     bool use_sort,
                                      TransactionId OldestXmin,
                                      TransactionId *xid_cutoff,
                                      MultiXactId *multi_cutoff,
-                                     double *num_tuples, double *tups_vacuumed,
+                                     double *num_tuples,
+                                     double *tups_vacuumed,
                                      double *tups_recently_dead) {
-  TRACE("old_table: %s, new_table: %s", RelationGetRelationName(old_table),
+  TRACE("old_table: %s, new_table: %s",
+        RelationGetRelationName(old_table),
         RelationGetRelationName(new_table));
 }
 
-static void traceam_vacuum(Relation relation, VacuumParams *params,
+static void traceam_vacuum(Relation relation,
+                           VacuumParams *params,
                            BufferAccessStrategy bstrategy) {
   TRACE("relation: %s", RelationGetRelationName(relation));
 }
@@ -234,7 +275,8 @@ static bool traceam_scan_analyze_next_block(TableScanDesc scan,
 
 static bool traceam_scan_analyze_next_tuple(TableScanDesc scan,
                                             TransactionId OldestXmin,
-                                            double *liverows, double *deadrows,
+                                            double *liverows,
+                                            double *deadrows,
                                             TupleTableSlot *slot) {
   TRACE("relation: %s", RelationGetRelationName(scan->rs_rd));
   return false;
@@ -365,4 +407,7 @@ static const TableAmRoutine traceam_methods = {
 
 Datum traceam_handler(PG_FUNCTION_ARGS) {
   PG_RETURN_POINTER(&traceam_methods);
+}
+
+void _PG_init(void) {
 }
