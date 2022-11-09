@@ -8,6 +8,16 @@
 #include <lib/stringinfo.h>
 #include <nodes/memnodes.h>
 
+/**
+ * Trace macro.
+ *
+ * This is used by the callbacks to emit a trace prefixed with the
+ * function that is being called.
+ */
+#define TRACE(FMT, ...) ereport(DEBUG2, \
+                                (errmsg_internal("%s " FMT, __func__, ##__VA_ARGS__), \
+                                 errbacktrace()));
+
 typedef struct TraceTupleTableSlot {
   TupleTableSlot base;
 } TraceTupleTableSlot;
@@ -76,15 +86,15 @@ slotToString(TupleTableSlot *slot)
 }
 
 static void tts_trace_init(TupleTableSlot *slot) {
-  elog(DEBUG2, "slot: %p", slot);
+  TRACE("slot: %p", slot);
 }
 
 static void tts_trace_release(TupleTableSlot *slot) {
-  elog(DEBUG2, "slot: %p %s", slot, slotToString(slot));
+  TRACE("slot: %p %s", slot, slotToString(slot));
 }
 
 static void tts_trace_clear(TupleTableSlot *slot) {
-  elog(DEBUG2, "slot: %p %s", slot, slotToString(slot));
+  TRACE("slot: %p %s", slot, slotToString(slot));
   if (unlikely(TTS_SHOULDFREE(slot)))
     slot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
 
@@ -94,13 +104,13 @@ static void tts_trace_clear(TupleTableSlot *slot) {
 }
 
 static void tts_trace_materialize(TupleTableSlot *slot) {
-  elog(DEBUG2, "slot: %p %s", slot, slotToString(slot));
+  TRACE("slot: %p %s", slot, slotToString(slot));
 }
 
 static void tts_trace_copyslot(TupleTableSlot *dstslot,
                                TupleTableSlot *srcslot) {
   TupleDesc srcdesc = srcslot->tts_tupleDescriptor;
-  elog(DEBUG2, "dstslot: %p, srcslot: %p %s", dstslot, srcslot,
+  TRACE("dstslot: %p, srcslot: %p %s", dstslot, srcslot,
        slotToString(srcslot));
 
   Assert(srcdesc->natts <= dstslot->tts_tupleDescriptor->natts);
@@ -122,16 +132,16 @@ static void tts_trace_copyslot(TupleTableSlot *dstslot,
 
 static Datum tts_trace_getsysattr(TupleTableSlot *slot, int attnum,
                                   bool *isnull) {
-  elog(DEBUG2, "attnum: %d, slot: %s", attnum, slotToString(slot));
+  TRACE("attnum: %d, slot: %s", attnum, slotToString(slot));
   return 0; /* silence compiler warnings */
 }
 
 static void tts_trace_getsomeattrs(TupleTableSlot *slot, int natts) {
-  elog(DEBUG2, "natts: %d, slot: %s", natts, slotToString(slot));
+  TRACE("natts: %d, slot: %s", natts, slotToString(slot));
 }
 
 static HeapTuple tts_trace_copy_heap_tuple(TupleTableSlot *slot) {
-  elog(DEBUG2, "slot: %s", slotToString(slot));
+  TRACE("slot: %s", slotToString(slot));
 
   Assert(!TTS_EMPTY(slot));
 
@@ -140,7 +150,7 @@ static HeapTuple tts_trace_copy_heap_tuple(TupleTableSlot *slot) {
 }
 
 static MinimalTuple tts_trace_copy_minimal_tuple(TupleTableSlot *slot) {
-  elog(DEBUG2, "slot: %s", slotToString(slot));
+  TRACE("slot: %s", slotToString(slot));
 
   Assert(!TTS_EMPTY(slot));
 

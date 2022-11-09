@@ -24,7 +24,9 @@ void _PG_init(void);
  * This is used by the callbacks to emit a trace prefixed with the
  * function that is being called.
  */
-#define TRACE(FMT, ...) elog(DEBUG2, "%s " FMT, __func__, ##__VA_ARGS__);
+#define TRACE(FMT, ...) ereport(DEBUG2, \
+                                (errmsg_internal("%s " FMT, __func__, ##__VA_ARGS__), \
+                                 errbacktrace()));
 
 static const TableAmRoutine traceam_methods;
 
