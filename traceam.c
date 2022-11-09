@@ -245,10 +245,11 @@ static double traceam_index_build_range_scan(
     bool allow_sync, bool anyvisible, bool progress, BlockNumber start_blockno,
     BlockNumber numblocks, IndexBuildCallback callback, void *callback_state,
     TableScanDesc scan) {
-  TRACE("table: %s, index: %s, relation: %s",
+  TRACE("%s scan, table: %s, index: %s, relation: %s",
+        scan ? "parallel" : "serial",
         RelationGetRelationName(tableRelation),
         RelationGetRelationName(indexRelation),
-        RelationGetRelationName(scan->rs_rd));
+        scan ? RelationGetRelationName(scan->rs_rd) : "<>");
   return 0;
 }
 
