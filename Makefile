@@ -1,12 +1,13 @@
 MODULE_big = traceam
-OBJS = traceam.o tuple.o
+OBJS = traceam.o tuple.o guts.o
 
 EXTENSION = traceam
 DATA = traceam--0.1.sql
-PGFILEDESC = "traceam - table access method that just print trace of calls"
-PG_CFLAGS = -std=gnu99
+PGFILEDESC = "traceam - table access method that prints trace of calls"
+PG_CFLAGS = -std=c99
 
 REGRESS = basic
+REGRESS_OPTS += --load-extension=traceam
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)

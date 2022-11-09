@@ -1,3 +1,5 @@
+#include "traceam.h"
+
 #include <postgres.h>
 
 #include <access/amapi.h>
@@ -7,7 +9,6 @@
 #include <catalog/index.h>
 #include <catalog/namespace.h>
 #include <catalog/pg_am_d.h>
-#include <catalog/pg_authid.h>
 #include <commands/tablespace.h>
 #include <commands/vacuum.h>
 #include <executor/tuptable.h>
@@ -15,6 +16,7 @@
 #include <utils/rel.h>
 #include <utils/syscache.h>
 
+#include "guts.h"
 #include "tuple.h"
 
 PG_MODULE_MAGIC;
@@ -29,58 +31,88 @@ void _PG_init(void);
  * This is used by the callbacks to emit a trace prefixed with the
  * function that is being called.
  */
-#define TRACE(FMT, ...) ereport(DEBUG2, \
-                                (errmsg_internal("%s " FMT, __func__, ##__VA_ARGS__), \
-                                 errbacktrace()));
+#define TRACE(FMT, ...) \
+  ereport(              \
+      DEBUG2,           \
+      (errmsg_internal("%s " FMT, __func__, ##__VA_ARGS__), errbacktrace()));
 
 static const TableAmRoutine traceam_methods;
 
-static const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
+const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
+  Relation guts;
+  const TupleTableSlotOps *callbacks;
+
   TRACE("relation: %s", RelationGetRelationName(relation));
-  return &TTSOpsTraceTuple;
+  guts = open_guts_for_relid(RelationGetRelid(relation), AccessShareLock);
+  callbacks = table_slot_callbacks(guts);
+  close_guts(guts, AccessShareLock);
+  return callbacks;
 }
 
-static TableScanDesc traceam_scan_begin(Relation relation,
-                                        Snapshot snapshot,
-                                        int nkeys,
-                                        ScanKey key,
+/*
+ * Start a scan of the trace table.
+ *
+ * NOTE: we do not take a lock here since we instead rely on the
+ * locking to be synchronized over the the "real" relation.
+ */
+static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
+                                        int nkeys, ScanKey key,
                                         ParallelTableScanDesc parallel_scan,
                                         uint32 flags) {
-  TableScanDesc scan;
+  Relation guts;
+  TraceScanDesc scan;
 
-  TRACE("relation: %s, nkeys: %d, flags: %x", RelationGetRelationName(relation),
-        nkeys, flags);
+  TRACE("relation: %s, nkeys: %d, flags: %x",
+        RelationGetRelationName(relation),
+        nkeys,
+        flags);
   scan = palloc(sizeof(TableScanDescData));
 
   RelationIncrementReferenceCount(relation);
 
-  scan->rs_rd = relation;
-  scan->rs_snapshot = snapshot;
-  scan->rs_nkeys = nkeys;
-  scan->rs_flags = flags;
-  scan->rs_parallel = parallel_scan;
+  scan = (TraceScanDesc)palloc(sizeof(TraceScanDescData));
+  scan->rs_base.rs_rd = relation;
+  scan->rs_base.rs_snapshot = snapshot;
+  scan->rs_base.rs_nkeys = nkeys;
+  scan->rs_base.rs_flags = flags;
+  scan->rs_base.rs_parallel = parallel_scan;
 
-  return scan;
+  guts = open_guts_for_relid(RelationGetRelid(relation), AccessShareLock);
+  scan->guts_scan = guts->rd_tableam->scan_begin(
+      guts, snapshot, nkeys, key, parallel_scan, flags);
+  return (TableScanDesc)scan;
 }
 
-static void traceam_scan_end(TableScanDesc scan) {
-  TRACE("relation: %s", RelationGetRelationName(scan->rs_rd));
-  RelationDecrementReferenceCount(scan->rs_rd);
-  pfree(scan);
+static void traceam_scan_end(TableScanDesc sscan) {
+  TraceScanDesc scan = (TraceScanDesc)sscan;
+  TRACE("relation: %s", RelationGetRelationName(sscan->rs_rd));
+  RelationDecrementReferenceCount(scan->rs_base.rs_rd);
+  close_guts(scan->guts_scan->rs_rd, AccessShareLock);
+  table_endscan(scan->guts_scan);
 }
 
-static void traceam_scan_rescan(TableScanDesc scan, ScanKey key,
+static void traceam_scan_rescan(TableScanDesc sscan, ScanKey key,
                                 bool set_params, bool allow_strat,
                                 bool allow_sync, bool allow_pagemode) {
-  TRACE("relation: %s", RelationGetRelationName(scan->rs_rd));
+  TraceScanDesc scan = (TraceScanDesc)sscan;
+  TRACE("relation: %s", RelationGetRelationName(sscan->rs_rd));
+  scan->guts_scan->rs_rd->rd_tableam->scan_rescan(scan->guts_scan,
+                                                  key,
+                                                  set_params,
+                                                  allow_strat,
+                                                  allow_sync,
+                                                  allow_pagemode);
 }
 
-static bool traceam_scan_getnextslot(TableScanDesc scan,
+static bool traceam_scan_getnextslot(TableScanDesc sscan,
                                      ScanDirection direction,
                                      TupleTableSlot *slot) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(scan->rs_rd),
-        slotToString(slot));
-  return true;
+  TraceScanDesc scan = (TraceScanDesc)sscan;
+  TRACE("relation: %s", RelationGetRelationName(sscan->rs_rd));
+  /* We are storing the data in the slot for the outer table, not the
+   * inner table. We probably need to use the slot for the inner table
+   * and then copy the columns to the outer table slot. */
+  return table_scan_getnextslot(scan->guts_scan, direction, slot);
 }
 
 static IndexFetchTableData *traceam_index_fetch_begin(Relation relation) {
@@ -106,7 +138,8 @@ static bool traceam_index_fetch_tuple(struct IndexFetchTableData *scan,
 
 static bool traceam_fetch_row_version(Relation relation, ItemPointer tid,
                                       Snapshot snapshot, TupleTableSlot *slot) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(relation),
         slotToString(slot));
   return false;
 }
@@ -123,7 +156,8 @@ static bool traceam_tuple_tid_valid(TableScanDesc scan, ItemPointer tid) {
 static bool traceam_tuple_satisfies_snapshot(Relation relation,
                                              TupleTableSlot *slot,
                                              Snapshot snapshot) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(relation),
         slotToString(slot));
   return false;
 }
@@ -137,8 +171,13 @@ static TransactionId traceam_index_delete_tuples(Relation relation,
 static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
                                  CommandId cid, int options,
                                  BulkInsertState bistate) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
+  Relation guts;
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(relation),
         slotToString(slot));
+  guts = open_guts_for_relid(RelationGetRelid(relation), RowExclusiveLock);
+  table_tuple_insert(guts, slot, cid, options, bistate);
+  close_guts(guts, NoLock);
 }
 
 static void traceam_tuple_insert_speculative(Relation relation,
@@ -146,16 +185,21 @@ static void traceam_tuple_insert_speculative(Relation relation,
                                              CommandId cid, int options,
                                              BulkInsertState bistate,
                                              uint32 specToken) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
+  Relation guts;
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(relation),
         slotToString(slot));
-  /* nothing to do */
+  guts = open_guts_for_relid(RelationGetRelid(relation), RowExclusiveLock);
+  table_tuple_insert_speculative(guts, slot, cid, options, bistate, specToken);
+  close_guts(guts, NoLock);
 }
 
 static void traceam_tuple_complete_speculative(Relation relation,
                                                TupleTableSlot *slot,
                                                uint32 spekToken,
                                                bool succeeded) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(relation),
         slotToString(slot));
   /* nothing to do */
 }
@@ -180,7 +224,8 @@ static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
                                       bool wait, TM_FailureData *tmfd,
                                       LockTupleMode *lockmode,
                                       bool *update_indexes) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(relation),
         slotToString(slot));
   return TM_Ok;
 }
@@ -190,7 +235,8 @@ static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
                                     CommandId cid, LockTupleMode mode,
                                     LockWaitPolicy wait_policy, uint8 flags,
                                     TM_FailureData *tmfd) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(relation),
         slotToString(slot));
   return TM_Ok;
 }
@@ -205,63 +251,47 @@ static void traceam_relation_set_new_filenode(Relation relation,
                                               char persistence,
                                               TransactionId *freezeXid,
                                               MultiXactId *minmulti) {
-  char inner_relname[NAMEDATALEN];
-
   TRACE("relation: %s, newrnode: {spcNode: %d, dbNode: %d, relNode: %d}",
-        RelationGetRelationName(relation), newrnode->spcNode, newrnode->dbNode,
+        RelationGetRelationName(relation),
+        newrnode->spcNode,
+        newrnode->dbNode,
         newrnode->relNode);
-  /* Create inner heap table using the relfilenode, not the
-     relid. This is because the relfilenode might change so we should
-     mirror this internally as well. */
-  snprintf(inner_relname, sizeof(inner_relname), "inner_%u", newrnode->relNode);
-
-  heap_create_with_catalog(
-      inner_relname,
-      /* relnamespace */ get_namespace_oid("traceam", false),
-      newrnode->spcNode,
-      /* relid */ InvalidOid,
-      /* reltypeid */ InvalidOid,
-      /* reloftypeid */ InvalidOid,
-      /* ownerid */ relation->rd_rel->relowner,
-      /* accessmtd */ HEAP_TABLE_AM_OID,
-      /* tupdesc */ relation->rd_att,
-      /* cooked_constraints */ NIL,
-      RELKIND_RELATION,
-      persistence,
-      relation->rd_rel->relisshared,
-      RelationIsMapped(relation),
-      ONCOMMIT_NOOP,
-      /* reloptions */ (Datum)0,
-      /* use_user_acl */ false,
-      /* allow_system_table_mods */ false,
-      /* is_internal */ false,
-      /* relrewrite */ InvalidOid,
-      /* typaddress */ NULL);
+  create_guts_for(relation, newrnode, persistence);
 }
 
 static void traceam_relation_nontransactional_truncate(Relation relation) {
+  Relation guts;
+  TRACE("relation: %s", RelationGetRelationName(relation));
+  guts = open_guts_for_relid(RelationGetRelid(relation), AccessExclusiveLock);
+  table_relation_nontransactional_truncate(guts);
+  close_guts(guts, RowExclusiveLock);
 }
 
 static void traceam_copy_data(Relation relation, const RelFileNode *newrnode) {
+  TRACE("relation: %s", RelationGetRelationName(relation));
+#if 0
+  /* This needs to copy to a new filenode, so we need to create a
+     table for the guts before copying. */
+  Relation guts;
+  guts = guts_open(RelationGetRelid(relation), RowExclusiveLock);
+  table_relation_copy_data(guts, newgnode);
+  guts_close(guts, RowExclusiveLock);
+#endif
 }
 
-static void traceam_copy_for_cluster(Relation old_table,
-                                     Relation new_table,
-                                     Relation OldIndex,
-                                     bool use_sort,
+static void traceam_copy_for_cluster(Relation old_table, Relation new_table,
+                                     Relation OldIndex, bool use_sort,
                                      TransactionId OldestXmin,
                                      TransactionId *xid_cutoff,
                                      MultiXactId *multi_cutoff,
-                                     double *num_tuples,
-                                     double *tups_vacuumed,
+                                     double *num_tuples, double *tups_vacuumed,
                                      double *tups_recently_dead) {
   TRACE("old_table: %s, new_table: %s",
         RelationGetRelationName(old_table),
         RelationGetRelationName(new_table));
 }
 
-static void traceam_vacuum(Relation relation,
-                           VacuumParams *params,
+static void traceam_vacuum(Relation relation, VacuumParams *params,
                            BufferAccessStrategy bstrategy) {
   TRACE("relation: %s", RelationGetRelationName(relation));
 }
@@ -275,8 +305,7 @@ static bool traceam_scan_analyze_next_block(TableScanDesc scan,
 
 static bool traceam_scan_analyze_next_tuple(TableScanDesc scan,
                                             TransactionId OldestXmin,
-                                            double *liverows,
-                                            double *deadrows,
+                                            double *liverows, double *deadrows,
                                             TupleTableSlot *slot) {
   TRACE("relation: %s", RelationGetRelationName(scan->rs_rd));
   return false;
@@ -299,7 +328,8 @@ static void traceam_index_validate_scan(Relation tableRelation,
                                         Relation indexRelation,
                                         IndexInfo *indexInfo, Snapshot snapshot,
                                         ValidateIndexState *state) {
-  TRACE("table: %s, index: %s", RelationGetRelationName(tableRelation),
+  TRACE("table: %s, index: %s",
+        RelationGetRelationName(tableRelation),
         RelationGetRelationName(indexRelation));
 }
 
