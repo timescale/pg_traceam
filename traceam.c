@@ -70,7 +70,7 @@ static bool traceam_scan_getnextslot(TableScanDesc scan,
                                      ScanDirection direction,
                                      TupleTableSlot *slot) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(scan->rs_rd),
-        nodeToString((Node *)slot));
+        slotToString(slot));
   return true;
 }
 
@@ -91,14 +91,14 @@ static bool traceam_index_fetch_tuple(struct IndexFetchTableData *scan,
                                       ItemPointer tid, Snapshot snapshot,
                                       TupleTableSlot *slot, bool *call_again,
                                       bool *all_dead) {
-  TRACE("slot: %s", nodeToString((Node *)slot));
+  TRACE("slot: %s", slotToString(slot));
   return 0;
 }
 
 static bool traceam_fetch_row_version(Relation relation, ItemPointer tid,
                                       Snapshot snapshot, TupleTableSlot *slot) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        nodeToString((Node *)slot));
+        slotToString(slot));
   return false;
 }
 
@@ -115,7 +115,7 @@ static bool traceam_tuple_satisfies_snapshot(Relation relation,
                                              TupleTableSlot *slot,
                                              Snapshot snapshot) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        nodeToString((Node *)slot));
+        slotToString(slot));
   return false;
 }
 
@@ -129,7 +129,7 @@ static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
                                  CommandId cid, int options,
                                  BulkInsertState bistate) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        nodeToString((Node *)slot));
+        slotToString(slot));
 }
 
 static void traceam_tuple_insert_speculative(Relation relation,
@@ -138,7 +138,7 @@ static void traceam_tuple_insert_speculative(Relation relation,
                                              BulkInsertState bistate,
                                              uint32 specToken) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        nodeToString((Node *)slot));
+        slotToString(slot));
   /* nothing to do */
 }
 
@@ -147,7 +147,7 @@ static void traceam_tuple_complete_speculative(Relation relation,
                                                uint32 spekToken,
                                                bool succeeded) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        nodeToString((Node *)slot));
+        slotToString(slot));
   /* nothing to do */
 }
 
@@ -172,7 +172,7 @@ static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
                                       LockTupleMode *lockmode,
                                       bool *update_indexes) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        nodeToString((Node *)slot));
+        slotToString(slot));
   return TM_Ok;
 }
 
@@ -182,7 +182,7 @@ static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
                                     LockWaitPolicy wait_policy, uint8 flags,
                                     TM_FailureData *tmfd) {
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        nodeToString((Node *)slot));
+        slotToString(slot));
   return TM_Ok;
 }
 

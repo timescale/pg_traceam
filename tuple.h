@@ -7,4 +7,6 @@
 
 extern PGDLLIMPORT const TupleTableSlotOps TTSOpsTraceTuple;
 
+extern PGDLLIMPORT char *slotToString(TupleTableSlot *slot);
+
 #endif /* TUPLE_H_ */
