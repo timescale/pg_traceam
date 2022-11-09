@@ -9,6 +9,8 @@
 #include <utils/lsyscache.h>
 #include <utils/rel.h>
 
+#include "trace.h"
+
 /* Create inner heap table using the relfilenode.  This is because the
  * relfilenode might change so we should mirror this internally as
  * well. */
@@ -21,6 +23,7 @@ void create_guts_for(Relation relation, const RelFileNode *newrnode,
   char relname[NAMEDATALEN];
   get_guts_relname_for(newrnode->relNode, relname, persistance);
 
+  TRACE("mapping %s to %s", RelationGetRelationName(relation), relname);
   heap_create_with_catalog(relname,
                            get_namespace_oid(TRACEAM_SCHEMA_NAME, false),
                            /* reltablespace */ newrnode->spcNode,

@@ -17,6 +17,7 @@
 #include <utils/syscache.h>
 
 #include "guts.h"
+#include "trace.h"
 #include "tuple.h"
 
 PG_MODULE_MAGIC;
@@ -25,17 +26,6 @@ PG_FUNCTION_INFO_V1(traceam_handler);
 
 void _PG_init(void);
 
-/**
- * Trace macro.
- *
- * This is used by the callbacks to emit a trace prefixed with the
- * function that is being called.
- */
-#define TRACE(FMT, ...) \
-  ereport(              \
-      DEBUG2,           \
-      (errmsg_internal("%s " FMT, __func__, ##__VA_ARGS__), errbacktrace()));
-
 static const TableAmRoutine traceam_methods;
 
 const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
@@ -43,7 +33,7 @@ const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
   const TupleTableSlotOps *callbacks;
 
   TRACE("relation: %s", RelationGetRelationName(relation));
-  guts = open_guts_for_relid(RelationGetRelid(relation), AccessShareLock);
+  guts = open_guts_for_relid(relation->rd_rel->relfilenode, AccessShareLock);
   callbacks = table_slot_callbacks(guts);
   close_guts(guts, AccessShareLock);
   return callbacks;
@@ -77,7 +67,7 @@ static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
   scan->rs_base.rs_flags = flags;
   scan->rs_base.rs_parallel = parallel_scan;
 
-  guts = open_guts_for_relid(RelationGetRelid(relation), AccessShareLock);
+  guts = open_guts_for_relid(relation->rd_rel->relfilenode, AccessShareLock);
   scan->guts_scan = guts->rd_tableam->scan_begin(
       guts, snapshot, nkeys, key, parallel_scan, flags);
   return (TableScanDesc)scan;
@@ -175,7 +165,7 @@ static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
   TRACE("relation: %s, slot: %s",
         RelationGetRelationName(relation),
         slotToString(slot));
-  guts = open_guts_for_relid(RelationGetRelid(relation), RowExclusiveLock);
+  guts = open_guts_for_relid(relation->rd_rel->relfilenode, RowExclusiveLock);
   table_tuple_insert(guts, slot, cid, options, bistate);
   close_guts(guts, NoLock);
 }
@@ -189,7 +179,7 @@ static void traceam_tuple_insert_speculative(Relation relation,
   TRACE("relation: %s, slot: %s",
         RelationGetRelationName(relation),
         slotToString(slot));
-  guts = open_guts_for_relid(RelationGetRelid(relation), RowExclusiveLock);
+  guts = open_guts_for_relid(relation->rd_rel->relfilenode, RowExclusiveLock);
   table_tuple_insert_speculative(guts, slot, cid, options, bistate, specToken);
   close_guts(guts, NoLock);
 }
@@ -262,7 +252,8 @@ static void traceam_relation_set_new_filenode(Relation relation,
 static void traceam_relation_nontransactional_truncate(Relation relation) {
   Relation guts;
   TRACE("relation: %s", RelationGetRelationName(relation));
-  guts = open_guts_for_relid(RelationGetRelid(relation), AccessExclusiveLock);
+  guts =
+      open_guts_for_relid(relation->rd_rel->relfilenode, AccessExclusiveLock);
   table_relation_nontransactional_truncate(guts);
   close_guts(guts, RowExclusiveLock);
 }
