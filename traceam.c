@@ -29,6 +29,7 @@ void _PG_init(void);
                                  errbacktrace()));
 
 static const TableAmRoutine traceam_methods;
+static const TableAmRoutine *heapam_methods;
 
 static const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
   TRACE("relation: %s", RelationGetRelationName(relation));
@@ -201,6 +202,10 @@ static void traceam_relation_set_new_filenode(Relation relation,
   TRACE("relation: %s, newrnode: {spcNode: %d, dbNode: %d, relNode: %d}",
         RelationGetRelationName(relation), newrnode->spcNode, newrnode->dbNode,
         newrnode->relNode);
+
+  return heapam_methods->relation_set_new_filenode(relation, newrnode,
+                                                   persistence, freezeXid,
+                                                   minmulti);
 }
 
 static void traceam_relation_nontransactional_truncate(Relation relation) {
@@ -268,17 +273,21 @@ static uint64 traceam_relation_size(Relation relation, ForkNumber forkNumber) {
 
 static bool traceam_relation_needs_toast_table(Relation relation) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  return false;
+  return heapam_methods->relation_needs_toast_table(relation);
+}
+
+static Oid traceam_relation_toast_am(Relation relation) {
+  TRACE("relation: %s", RelationGetRelationName(relation));
+  return heapam_methods->relation_toast_am(relation);
 }
 
 static void traceam_estimate_rel_size(Relation relation, int32 *attr_widths,
                                       BlockNumber *pages, double *tuples,
                                       double *allvisfrac) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  *attr_widths = 0;
-  *tuples = 0;
-  *allvisfrac = 0;
-  *pages = 0;
+
+  return heapam_methods->relation_estimate_size(relation, attr_widths, pages,
+                                                tuples, allvisfrac);
 }
 
 static bool traceam_scan_bitmap_next_block(TableScanDesc scan,
@@ -354,6 +363,7 @@ static const TableAmRoutine traceam_methods = {
 
     .relation_size = traceam_relation_size,
     .relation_needs_toast_table = traceam_relation_needs_toast_table,
+    .relation_toast_am = traceam_relation_toast_am,
 
     .relation_estimate_size = traceam_estimate_rel_size,
 
@@ -365,4 +375,8 @@ static const TableAmRoutine traceam_methods = {
 
 Datum traceam_handler(PG_FUNCTION_ARGS) {
   PG_RETURN_POINTER(&traceam_methods);
+}
+
+void _PG_init(void) {
+  heapam_methods = GetHeapamTableAmRoutine();
 }

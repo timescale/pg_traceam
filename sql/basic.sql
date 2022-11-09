@@ -1,0 +1,4 @@
+CREATE EXTENSION traceam;
+SET client_min_messages TO 'debug2';
+
+CREATE TABLE test (a int, b text) USING traceam;
