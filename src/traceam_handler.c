@@ -1,5 +1,3 @@
-#include "traceam.h"
-
 #include <postgres.h>
 
 #include <access/amapi.h>
@@ -16,8 +14,8 @@
 #include <utils/rel.h>
 #include <utils/syscache.h>
 
-#include "guts.h"
 #include "trace.h"
+#include "traceam.h"
 #include "tuple.h"
 
 PG_MODULE_MAGIC;
@@ -28,21 +26,32 @@ void _PG_init(void);
 
 static const TableAmRoutine traceam_methods;
 
-const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
+static const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
   Relation guts;
   const TupleTableSlotOps *callbacks;
 
   TRACE("relation: %s", RelationGetRelationName(relation));
-  guts = open_guts_for_relid(relation->rd_rel->relfilenode, AccessShareLock);
+  guts = trace_open_filenode(relation->rd_rel->relfilenode, AccessShareLock);
   callbacks = table_slot_callbacks(guts);
-  close_guts(guts, AccessShareLock);
+  table_close(guts, AccessShareLock);
   return callbacks;
 }
 
-/*
+/**
  * Start a scan of the trace table.
  *
- * NOTE: we do not take a lock here since we instead rely on the
+ * We try to mimic the typical execution of the scanning functions,
+ * which is:
+ *
+ *    rel = table_open(...);
+ *    scan = table_beginscan(rel, ...);
+ *    while (table_scan_getnextslot(scan, ...)) {
+ *      ...
+ *    }
+ *    table_endscan(scan);
+ *    table_close(rel);
+ *
+ * @note we do not take a lock here since we instead rely on the
  * locking to be synchronized over the the "real" relation.
  */
 static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
@@ -67,7 +76,7 @@ static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
   scan->rs_base.rs_flags = flags;
   scan->rs_base.rs_parallel = parallel_scan;
 
-  guts = open_guts_for_relid(relation->rd_rel->relfilenode, AccessShareLock);
+  guts = trace_open_filenode(relation->rd_rel->relfilenode, AccessShareLock);
   scan->guts_scan = guts->rd_tableam->scan_begin(
       guts, snapshot, nkeys, key, parallel_scan, flags);
   return (TableScanDesc)scan;
@@ -77,7 +86,7 @@ static void traceam_scan_end(TableScanDesc sscan) {
   TraceScanDesc scan = (TraceScanDesc)sscan;
   TRACE("relation: %s", RelationGetRelationName(sscan->rs_rd));
   RelationDecrementReferenceCount(scan->rs_base.rs_rd);
-  close_guts(scan->guts_scan->rs_rd, AccessShareLock);
+  table_close(scan->guts_scan->rs_rd, AccessShareLock);
   table_endscan(scan->guts_scan);
 }
 
@@ -165,9 +174,9 @@ static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
   TRACE("relation: %s, slot: %s",
         RelationGetRelationName(relation),
         slotToString(slot));
-  guts = open_guts_for_relid(relation->rd_rel->relfilenode, RowExclusiveLock);
+  guts = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
   table_tuple_insert(guts, slot, cid, options, bistate);
-  close_guts(guts, NoLock);
+  table_close(guts, NoLock);
 }
 
 static void traceam_tuple_insert_speculative(Relation relation,
@@ -179,9 +188,9 @@ static void traceam_tuple_insert_speculative(Relation relation,
   TRACE("relation: %s, slot: %s",
         RelationGetRelationName(relation),
         slotToString(slot));
-  guts = open_guts_for_relid(relation->rd_rel->relfilenode, RowExclusiveLock);
+  guts = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
   table_tuple_insert_speculative(guts, slot, cid, options, bistate, specToken);
-  close_guts(guts, NoLock);
+  table_close(guts, NoLock);
 }
 
 static void traceam_tuple_complete_speculative(Relation relation,
@@ -246,16 +255,16 @@ static void traceam_relation_set_new_filenode(Relation relation,
         newrnode->spcNode,
         newrnode->dbNode,
         newrnode->relNode);
-  create_guts_for(relation, newrnode, persistence);
+  trace_create_filenode(relation, newrnode, persistence);
 }
 
 static void traceam_relation_nontransactional_truncate(Relation relation) {
   Relation guts;
   TRACE("relation: %s", RelationGetRelationName(relation));
   guts =
-      open_guts_for_relid(relation->rd_rel->relfilenode, AccessExclusiveLock);
+      trace_open_filenode(relation->rd_rel->relfilenode, AccessExclusiveLock);
   table_relation_nontransactional_truncate(guts);
-  close_guts(guts, RowExclusiveLock);
+  table_close(guts, RowExclusiveLock);
 }
 
 static void traceam_copy_data(Relation relation, const RelFileNode *newrnode) {

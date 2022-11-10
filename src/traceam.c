@@ -1,4 +1,4 @@
-#include "guts.h"
+#include "traceam.h"
 
 #include <postgres.h>
 
@@ -14,14 +14,15 @@
 /* Create inner heap table using the relfilenode.  This is because the
  * relfilenode might change so we should mirror this internally as
  * well. */
-void get_guts_relname_for(Oid relfilenode, char *relname, size_t bufsize) {
+static void get_filenode_relname(Oid relfilenode, char *relname,
+                                 size_t bufsize) {
   snprintf(relname, bufsize, "inner_%u", relfilenode);
 }
 
-void create_guts_for(Relation relation, const RelFileNode *newrnode,
-                     char persistance) {
+void trace_create_filenode(Relation relation, const RelFileNode *newrnode,
+                           char persistance) {
   char relname[NAMEDATALEN];
-  get_guts_relname_for(newrnode->relNode, relname, persistance);
+  get_filenode_relname(newrnode->relNode, relname, persistance);
 
   TRACE("mapping %s to %s", RelationGetRelationName(relation), relname);
   heap_create_with_catalog(relname,
@@ -47,15 +48,11 @@ void create_guts_for(Relation relation, const RelFileNode *newrnode,
                            /* typaddress */ NULL);
 }
 
-Relation open_guts_for_relid(Oid relid, LOCKMODE lockmode) {
+Relation trace_open_filenode(Oid relfilenode, LOCKMODE lockmode) {
   char relname[NAMEDATALEN];
   Oid guts_relid;
-  get_guts_relname_for(relid, relname, sizeof(relname));
+  get_filenode_relname(relfilenode, relname, sizeof(relname));
   guts_relid =
       get_relname_relid(relname, get_namespace_oid(TRACEAM_SCHEMA_NAME, false));
   return table_open(guts_relid, lockmode);
-}
-
-void close_guts(Relation relation, LOCKMODE lockmode) {
-  return table_close(relation, lockmode);
 }
