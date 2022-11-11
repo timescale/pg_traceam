@@ -106,7 +106,9 @@ void SyncTraceTupleTableSlot(TraceTupleTableSlot *tslot)
 {
   tslot->base.tts_flags = tslot->wrapped->tts_flags;
   tslot->base.tts_nvalid = tslot->wrapped->tts_nvalid;
+
   /* skip tts_ops */
+
   if (tslot->base.tts_tupleDescriptor != tslot->wrapped->tts_tupleDescriptor)
   {
     if (tslot->base.tts_tupleDescriptor)
@@ -117,10 +119,15 @@ void SyncTraceTupleTableSlot(TraceTupleTableSlot *tslot)
     if (tslot->base.tts_tupleDescriptor)
       PinTupleDesc(tslot->base.tts_tupleDescriptor);
   }
-   /* XXX: this will lead to a double-free in the non-FIXED case */
+
+  /* XXX: this will lead to a double-free in the non-FIXED case */
+  if (unlikely(tslot->base.tts_tupleDescriptor == NULL))
+    elog(ERROR, "FIXME: SyncTraceTupleTableSlot does not support non-FIXED slots");
   tslot->base.tts_values = tslot->wrapped->tts_values;
   tslot->base.tts_isnull = tslot->wrapped->tts_isnull;
+
   /* skip tts_mcxt */
+
   tslot->base.tts_tid = tslot->wrapped->tts_tid;
   tslot->base.tts_tableOid = tslot->wrapped->tts_tableOid;
 }
