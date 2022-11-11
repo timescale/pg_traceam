@@ -40,27 +40,15 @@ static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
                                         int nkeys, ScanKey key,
                                         ParallelTableScanDesc parallel_scan,
                                         uint32 flags) {
-  TableScanDesc scan;
-
   TRACE("relation: %s, nkeys: %d, flags: %x", RelationGetRelationName(relation),
         nkeys, flags);
-  scan = palloc(sizeof(TableScanDescData));
-
-  RelationIncrementReferenceCount(relation);
-
-  scan->rs_rd = relation;
-  scan->rs_snapshot = snapshot;
-  scan->rs_nkeys = nkeys;
-  scan->rs_flags = flags;
-  scan->rs_parallel = parallel_scan;
-
-  return scan;
+  return heapam_methods->scan_begin(relation, snapshot, nkeys, key,
+                                    parallel_scan, flags);
 }
 
 static void traceam_scan_end(TableScanDesc scan) {
   TRACE("relation: %s", RelationGetRelationName(scan->rs_rd));
-  RelationDecrementReferenceCount(scan->rs_rd);
-  pfree(scan);
+  return heapam_methods->scan_end(scan);
 }
 
 static void traceam_scan_rescan(TableScanDesc scan, ScanKey key,
@@ -72,9 +60,15 @@ static void traceam_scan_rescan(TableScanDesc scan, ScanKey key,
 static bool traceam_scan_getnextslot(TableScanDesc scan,
                                      ScanDirection direction,
                                      TupleTableSlot *slot) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+  bool valid;
+
   TRACE("relation: %s, slot: %s", RelationGetRelationName(scan->rs_rd),
         slotToString(slot));
-  return true;
+
+  valid = heapam_methods->scan_getnextslot(scan, direction, tslot->wrapped);
+  SyncTraceTupleTableSlot(tslot);
+  return valid;
 }
 
 static IndexFetchTableData *traceam_index_fetch_begin(Relation relation) {
@@ -131,8 +125,12 @@ static TransactionId traceam_index_delete_tuples(Relation relation,
 static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
                                  CommandId cid, int options,
                                  BulkInsertState bistate) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
         slotToString(slot));
+  return heapam_methods->tuple_insert(relation, tslot->wrapped, cid, options,
+                                      bistate);
+  /* TODO sync! find a test that exposes it */
 }
 
 static void traceam_tuple_insert_speculative(Relation relation,
@@ -267,8 +265,9 @@ static void traceam_index_validate_scan(Relation tableRelation,
 }
 
 static uint64 traceam_relation_size(Relation relation, ForkNumber forkNumber) {
-  TRACE("relation: %s", RelationGetRelationName(relation));
-  return 0;
+  TRACE("relation: %s, fork: %d",
+        RelationGetRelationName(relation), forkNumber);
+  return heapam_methods->relation_size(relation, forkNumber);
 }
 
 static bool traceam_relation_needs_toast_table(Relation relation) {

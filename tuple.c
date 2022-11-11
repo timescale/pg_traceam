@@ -18,10 +18,6 @@
                                 (errmsg_internal("%s " FMT, __func__, ##__VA_ARGS__), \
                                  errbacktrace()));
 
-typedef struct TraceTupleTableSlot {
-  TupleTableSlot base;
-} TraceTupleTableSlot;
-
 /*
  * nodeToString() doesn't handle TupleTableSlots at the moment, so do it
  * manually here.
@@ -86,48 +82,73 @@ slotToString(TupleTableSlot *slot)
 }
 
 static void tts_trace_init(TupleTableSlot *slot) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("slot: %p", slot);
+
+  tslot->wrapped = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor,
+                                            &TTSOpsBufferHeapTuple);
+  /* TODO: sync */
 }
 
 static void tts_trace_release(TupleTableSlot *slot) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("slot: %p %s", slot, slotToString(slot));
+
+  ExecDropSingleTupleTableSlot(tslot->wrapped);
+}
+
+/*
+ * Copies the wrapped slot's base attributes into the top-level trace slot.
+ * Typically this should be done whenever the wrapped slot is passed to a
+ * function that modifies it.
+ */
+void SyncTraceTupleTableSlot(TraceTupleTableSlot *tslot)
+{
+  tslot->base.tts_flags = tslot->wrapped->tts_flags;
+  tslot->base.tts_nvalid = tslot->wrapped->tts_nvalid;
+  /* skip tts_ops */
+  if (tslot->base.tts_tupleDescriptor != tslot->wrapped->tts_tupleDescriptor)
+  {
+    if (tslot->base.tts_tupleDescriptor)
+      ReleaseTupleDesc(tslot->base.tts_tupleDescriptor);
+
+    tslot->base.tts_tupleDescriptor = tslot->wrapped->tts_tupleDescriptor;
+
+    if (tslot->base.tts_tupleDescriptor)
+      PinTupleDesc(tslot->base.tts_tupleDescriptor);
+  }
+   /* XXX: this will lead to a double-free in the non-FIXED case */
+  tslot->base.tts_values = tslot->wrapped->tts_values;
+  tslot->base.tts_isnull = tslot->wrapped->tts_isnull;
+  /* skip tts_mcxt */
+  tslot->base.tts_tid = tslot->wrapped->tts_tid;
+  tslot->base.tts_tableOid = tslot->wrapped->tts_tableOid;
 }
 
 static void tts_trace_clear(TupleTableSlot *slot) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("slot: %p %s", slot, slotToString(slot));
-  if (unlikely(TTS_SHOULDFREE(slot)))
-    slot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
 
-  slot->tts_nvalid = 0;
-  slot->tts_flags |= TTS_FLAG_EMPTY;
-  ItemPointerSetInvalid(&slot->tts_tid);
+  ExecClearTuple(tslot->wrapped);
+  SyncTraceTupleTableSlot(tslot);
 }
 
 static void tts_trace_materialize(TupleTableSlot *slot) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("slot: %p %s", slot, slotToString(slot));
+
+  ExecMaterializeSlot(tslot->wrapped);
+  SyncTraceTupleTableSlot(tslot);
 }
 
 static void tts_trace_copyslot(TupleTableSlot *dstslot,
                                TupleTableSlot *srcslot) {
-  TupleDesc srcdesc = srcslot->tts_tupleDescriptor;
-  TRACE("dstslot: %p, srcslot: %p %s", dstslot, srcslot,
-       slotToString(srcslot));
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) dstslot;
+  TRACE("dstslot: %p %s, srcslot: %p %s", dstslot, slotToString(dstslot),
+        srcslot, slotToString(srcslot));
 
-  Assert(srcdesc->natts <= dstslot->tts_tupleDescriptor->natts);
-
-  tts_trace_clear(dstslot);
-
-  slot_getallattrs(srcslot);
-
-  for (int natt = 0; natt < srcdesc->natts; natt++) {
-    dstslot->tts_values[natt] = srcslot->tts_values[natt];
-    dstslot->tts_isnull[natt] = srcslot->tts_isnull[natt];
-  }
-
-  dstslot->tts_nvalid = srcdesc->natts;
-  dstslot->tts_flags &= ~TTS_FLAG_EMPTY;
-
-  tts_trace_materialize(dstslot);
+  ExecCopySlot(tslot->wrapped, srcslot);
+  SyncTraceTupleTableSlot(tslot);
 }
 
 static Datum tts_trace_getsysattr(TupleTableSlot *slot, int attnum,
@@ -137,7 +158,11 @@ static Datum tts_trace_getsysattr(TupleTableSlot *slot, int attnum,
 }
 
 static void tts_trace_getsomeattrs(TupleTableSlot *slot, int natts) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("natts: %d, slot: %s", natts, slotToString(slot));
+
+  slot_getsomeattrs_int(tslot->wrapped, natts);
+  SyncTraceTupleTableSlot(tslot);
 }
 
 static HeapTuple tts_trace_copy_heap_tuple(TupleTableSlot *slot) {
