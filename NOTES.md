@@ -143,6 +143,17 @@ taken for the "main" table, so we have to speculate on what lock to
 take. (The lock needed is available in the range table entry, but not
 available in the relation structure, AFAICT.)
 
+## Truncating a relation
+
+A relation is typically truncated by setting a different file node for
+the relation using `table_relation_set_new_filenode`, but there is a
+`table_relation_nontransactional_truncate` available as well.
+
+The non-transactional version is used when the filenode is created in
+the same transaction as the truncate, for example when a new table is
+created in the same transaction as the truncate or if the relation is
+truncated twice in the same transaction.
+
 ## Getting information
 
 ### Relation owner

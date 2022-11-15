@@ -1,3 +1,5 @@
 comment = 'tracing table access method'
 default_version = '0.1'
 relocatable = false
+schema = public
+

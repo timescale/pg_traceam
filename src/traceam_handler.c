@@ -71,8 +71,6 @@ static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
         RelationGetRelationName(relation),
         nkeys,
         flags);
-  scan = palloc(sizeof(TableScanDescData));
-
   RelationIncrementReferenceCount(relation);
 
   scan = (TraceScanDesc)palloc(sizeof(TraceScanDescData));
@@ -281,7 +279,7 @@ static void traceam_relation_nontransactional_truncate(Relation relation) {
   guts =
       trace_open_filenode(relation->rd_rel->relfilenode, AccessExclusiveLock);
   table_relation_nontransactional_truncate(guts);
-  table_close(guts, RowExclusiveLock);
+  table_close(guts, AccessExclusiveLock);
 }
 
 static void traceam_copy_data(Relation relation, const RelFileNode *newrnode) {
