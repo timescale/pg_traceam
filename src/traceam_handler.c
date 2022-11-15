@@ -26,6 +26,12 @@ void _PG_init(void);
 
 static const TableAmRoutine traceam_methods;
 
+/* A static variable with the open relation is needed to handle
+   table_tuple_insert_speculative and table_tuple_complete_speculative
+   since they do not have a state variable being passed in. This only
+   works if the calls are in the right order. */
+static Relation open_relation;
+
 static const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
   Relation guts;
   const TupleTableSlotOps *callbacks;
@@ -107,7 +113,9 @@ static bool traceam_scan_getnextslot(TableScanDesc sscan,
                                      ScanDirection direction,
                                      TupleTableSlot *slot) {
   TraceScanDesc scan = (TraceScanDesc)sscan;
-  TRACE("relation: %s", RelationGetRelationName(sscan->rs_rd));
+  TRACE("relation: %s, slot: %s",
+        RelationGetRelationName(sscan->rs_rd),
+        slotToString(slot));
   /* We are storing the data in the slot for the outer table, not the
    * inner table. We probably need to use the slot for the inner table
    * and then copy the columns to the outer table slot. */
@@ -171,9 +179,10 @@ static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
                                  CommandId cid, int options,
                                  BulkInsertState bistate) {
   Relation guts;
-  TRACE("relation: %s, slot: %s",
+  TRACE("relation: %s, slot: %s, cid: %d",
         RelationGetRelationName(relation),
-        slotToString(slot));
+        slotToString(slot),
+        cid);
   guts = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
   table_tuple_insert(guts, slot, cid, options, bistate);
   table_close(guts, NoLock);
@@ -184,13 +193,14 @@ static void traceam_tuple_insert_speculative(Relation relation,
                                              CommandId cid, int options,
                                              BulkInsertState bistate,
                                              uint32 specToken) {
-  Relation guts;
-  TRACE("relation: %s, slot: %s",
+  TRACE("relation: %s, slot: %s, cid: %d",
         RelationGetRelationName(relation),
-        slotToString(slot));
-  guts = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
-  table_tuple_insert_speculative(guts, slot, cid, options, bistate, specToken);
-  table_close(guts, NoLock);
+        slotToString(slot),
+        cid);
+  open_relation =
+      trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
+  table_tuple_insert_speculative(
+      open_relation, slot, cid, options, bistate, specToken);
 }
 
 static void traceam_tuple_complete_speculative(Relation relation,
@@ -200,13 +210,20 @@ static void traceam_tuple_complete_speculative(Relation relation,
   TRACE("relation: %s, slot: %s",
         RelationGetRelationName(relation),
         slotToString(slot));
-  /* nothing to do */
+  table_close(open_relation, NoLock);
 }
 
 static void traceam_multi_insert(Relation relation, TupleTableSlot **slots,
                                  int ntuples, CommandId cid, int options,
                                  BulkInsertState bistate) {
-  /* nothing to do */
+  Relation inner;
+  TRACE("relation: %s, cid: %u, ntuples: %d",
+        RelationGetRelationName(relation),
+        cid,
+        ntuples);
+  inner = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
+  table_multi_insert(inner, slots, ntuples, cid, options, bistate);
+  table_close(inner, NoLock);
 }
 
 static TM_Result traceam_tuple_delete(Relation relation, ItemPointer tid,
