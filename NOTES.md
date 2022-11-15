@@ -154,6 +154,32 @@ the same transaction as the truncate, for example when a new table is
 created in the same transaction as the truncate or if the relation is
 truncated twice in the same transaction.
 
+The transactional version will register the old filenode for unlinking
+using the `RelationDropStorage` function, and then create and assign a
+new filenode and assign it to the relation. This means that it is not
+possible to unlink the old relation and an internal table is required
+to store the mapping between the old filenode and the new filenode to
+be able to unlink the old filenode.
+
+```mermaid
+sequenceDiagram
+	tablecmds->>relcache: RelationSetNewRelfilenode(relation)
+	relcache->>catalog: newrelfilenode := GetNewRelFileNode()
+	relcache->>storage: RelationDropStorage(relation)
+	note over relcache: rel->rd_node := newrelfilenode
+	relcache->>tableam: table_relation_set_new_filenode(relation, relation->rd_node)
+```
+
+> A better approach would be to provide the extension with information
+> that a file node is unlinked. From the perspective of the extension,
+> this is just an object identifier that it can use any way it likes,
+> so either it can be passed as a parameter, or an additional callback
+> can be added that will reset the filenode. 
+> 
+> Adding a reset filenode callback would bnot require any signatures
+> nor changes to existing table access methods, and would also support
+> table drops as well as truncates.
+
 ## Getting information
 
 ### Relation owner

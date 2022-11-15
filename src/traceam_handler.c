@@ -270,6 +270,10 @@ static void traceam_relation_set_new_filenode(Relation relation,
         newrnode->spcNode,
         newrnode->dbNode,
         newrnode->relNode);
+  /* On a truncate, the old relfilenode is scheduled for unlinking
+     before this function is called, so we never see the old file
+     node.  We need to have a table to map the existing relation to
+     the file node to be able to modify this internally. */
   trace_create_filenode(relation, newrnode, persistence);
 }
 
