@@ -32,6 +32,15 @@ static const TableAmRoutine traceam_methods;
    works if the calls are in the right order. */
 static Relation open_relation;
 
+static const char *itemPointerToString(ItemPointer pointer) {
+  static char buf[32];
+  sprintf(buf,
+          "%u/%u",
+          ItemPointerGetBlockNumber(pointer),
+          ItemPointerGetOffsetNumber(pointer));
+  return buf;
+}
+
 static const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
   Relation guts;
   const TupleTableSlotOps *callbacks;
@@ -111,9 +120,8 @@ static bool traceam_scan_getnextslot(TableScanDesc sscan,
                                      ScanDirection direction,
                                      TupleTableSlot *slot) {
   TraceScanDesc scan = (TraceScanDesc)sscan;
-  TRACE("relation: %s, slot: %s",
-        RelationGetRelationName(sscan->rs_rd),
-        slotToString(slot));
+  TRACE("relation: %s", RelationGetRelationName(sscan->rs_rd));
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   /* We are storing the data in the slot for the outer table, not the
    * inner table. We probably need to use the slot for the inner table
    * and then copy the columns to the outer table slot. */
@@ -137,15 +145,15 @@ static bool traceam_index_fetch_tuple(struct IndexFetchTableData *scan,
                                       ItemPointer tid, Snapshot snapshot,
                                       TupleTableSlot *slot, bool *call_again,
                                       bool *all_dead) {
-  TRACE("slot: %s", slotToString(slot));
+  TRACE("tid: %s", itemPointerToString(tid));
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   return 0;
 }
 
 static bool traceam_fetch_row_version(Relation relation, ItemPointer tid,
                                       Snapshot snapshot, TupleTableSlot *slot) {
-  TRACE("relation: %s, slot: %s",
-        RelationGetRelationName(relation),
-        slotToString(slot));
+  TRACE("relation: %s", RelationGetRelationName(relation));
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   return false;
 }
 
@@ -161,9 +169,8 @@ static bool traceam_tuple_tid_valid(TableScanDesc scan, ItemPointer tid) {
 static bool traceam_tuple_satisfies_snapshot(Relation relation,
                                              TupleTableSlot *slot,
                                              Snapshot snapshot) {
-  TRACE("relation: %s, slot: %s",
-        RelationGetRelationName(relation),
-        slotToString(slot));
+  TRACE("relation: %s", RelationGetRelationName(relation));
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   return false;
 }
 
@@ -177,10 +184,8 @@ static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
                                  CommandId cid, int options,
                                  BulkInsertState bistate) {
   Relation guts;
-  TRACE("relation: %s, slot: %s, cid: %d",
-        RelationGetRelationName(relation),
-        slotToString(slot),
-        cid);
+  TRACE("relation: %s, cid: %d", RelationGetRelationName(relation), cid);
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   guts = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
   table_tuple_insert(guts, slot, cid, options, bistate);
   table_close(guts, NoLock);
@@ -191,10 +196,8 @@ static void traceam_tuple_insert_speculative(Relation relation,
                                              CommandId cid, int options,
                                              BulkInsertState bistate,
                                              uint32 specToken) {
-  TRACE("relation: %s, slot: %s, cid: %d",
-        RelationGetRelationName(relation),
-        slotToString(slot),
-        cid);
+  TRACE("relation: %s, cid: %d", RelationGetRelationName(relation), cid);
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   open_relation =
       trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
   table_tuple_insert_speculative(
@@ -205,9 +208,8 @@ static void traceam_tuple_complete_speculative(Relation relation,
                                                TupleTableSlot *slot,
                                                uint32 spekToken,
                                                bool succeeded) {
-  TRACE("relation: %s, slot: %s",
-        RelationGetRelationName(relation),
-        slotToString(slot));
+  TRACE("relation: %s", RelationGetRelationName(relation));
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   table_close(open_relation, NoLock);
 }
 
@@ -238,9 +240,8 @@ static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
                                       bool wait, TM_FailureData *tmfd,
                                       LockTupleMode *lockmode,
                                       bool *update_indexes) {
-  TRACE("relation: %s, slot: %s",
-        RelationGetRelationName(relation),
-        slotToString(slot));
+  TRACE("relation: %s, cid: %d", RelationGetRelationName(relation), cid);
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   return TM_Ok;
 }
 
@@ -249,9 +250,8 @@ static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
                                     CommandId cid, LockTupleMode mode,
                                     LockWaitPolicy wait_policy, uint8 flags,
                                     TM_FailureData *tmfd) {
-  TRACE("relation: %s, slot: %s",
-        RelationGetRelationName(relation),
-        slotToString(slot));
+  TRACE("relation: %s, cid: %d", RelationGetRelationName(relation), cid);
+  TRACE_DETAIL("slot: %s", slotToString(slot));
   return TM_Ok;
 }
 
