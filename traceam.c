@@ -66,8 +66,16 @@ static bool traceam_scan_getnextslot(TableScanDesc scan,
   TRACE("relation: %s, slot: %s", RelationGetRelationName(scan->rs_rd),
         slotToString(slot));
 
+  tslot->wrapped->tts_tableOid = slot->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
   valid = heapam_methods->scan_getnextslot(scan, direction, tslot->wrapped);
-  SyncTraceTupleTableSlot(tslot);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_nvalid = tslot->wrapped->tts_nvalid;
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
   return valid;
 }
 
@@ -128,9 +136,14 @@ static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
   TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
         slotToString(slot));
-  return heapam_methods->tuple_insert(relation, tslot->wrapped, cid, options,
-                                      bistate);
-  /* TODO sync! find a test that exposes it */
+
+  tslot->wrapped->tts_tableOid = slot->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  heapam_methods->tuple_insert(relation, tslot->wrapped, cid, options, bistate);
+
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
 }
 
 static void traceam_tuple_insert_speculative(Relation relation,

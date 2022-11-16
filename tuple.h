@@ -20,7 +20,11 @@ typedef struct TraceTupleTableSlot {
   TupleTableSlot *wrapped;
 } TraceTupleTableSlot;
 
+/* for TraceEnsureNoSlotChanges */
+#define DIR_INCOMING 0
+#define DIR_OUTGOING 1
+
 extern PGDLLIMPORT char *slotToString(TupleTableSlot *slot);
-extern PGDLLIMPORT void SyncTraceTupleTableSlot(TraceTupleTableSlot *tslot);
+extern PGDLLIMPORT void TraceEnsureNoSlotChanges(TraceTupleTableSlot *tslot, int direction);
 
 #endif /* TUPLE_H_ */

@@ -87,7 +87,17 @@ static void tts_trace_init(TupleTableSlot *slot) {
 
   tslot->wrapped = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor,
                                             &TTSOpsBufferHeapTuple);
-  /* TODO: sync */
+
+  /*
+   * Connect the wrapped slot's values/isnull arrays to ours. This won't work
+   * for non-FIXED slots (where we'd create a double-free situation during
+   * release), but it's unclear if we need to handle that case for this slot
+   * type.
+   */
+  if (unlikely(slot->tts_tupleDescriptor == NULL))
+    elog(ERROR, "FIXME: support non-FIXED slots in tts_trace_init");
+  tslot->base.tts_values = tslot->wrapped->tts_values;
+  tslot->base.tts_isnull = tslot->wrapped->tts_isnull;
 }
 
 static void tts_trace_release(TupleTableSlot *slot) {
@@ -97,55 +107,68 @@ static void tts_trace_release(TupleTableSlot *slot) {
   ExecDropSingleTupleTableSlot(tslot->wrapped);
 }
 
-/*
- * Copies the wrapped slot's base attributes into the top-level trace slot.
- * Typically this should be done whenever the wrapped slot is passed to a
- * function that modifies it.
- */
-void SyncTraceTupleTableSlot(TraceTupleTableSlot *tslot)
+static pg_attribute_noreturn()
+void unsupportedSlotModification(const char *attr, int direction)
 {
-  tslot->base.tts_flags = tslot->wrapped->tts_flags;
-  tslot->base.tts_nvalid = tslot->wrapped->tts_nvalid;
+  ereport(ERROR,
+          (errmsg("base and wrapped slot differ: %s %s changed %s",
+				  (direction == DIR_INCOMING) ? "base" : "wrapped",
+		  		  attr,
+				  (direction == DIR_INCOMING) ? "externally" : "internally"),
+           errbacktrace()));
+}
 
-  /* skip tts_ops */
+void TraceEnsureNoSlotChanges(TraceTupleTableSlot *tslot, int direction) {
+  TupleTableSlot *base = &tslot->base;
+  TupleTableSlot *wrap = tslot->wrapped;
 
-  if (tslot->base.tts_tupleDescriptor != tslot->wrapped->tts_tupleDescriptor)
-  {
-    if (tslot->base.tts_tupleDescriptor)
-      ReleaseTupleDesc(tslot->base.tts_tupleDescriptor);
-
-    tslot->base.tts_tupleDescriptor = tslot->wrapped->tts_tupleDescriptor;
-
-    if (tslot->base.tts_tupleDescriptor)
-      PinTupleDesc(tslot->base.tts_tupleDescriptor);
-  }
-
-  /* XXX: this will lead to a double-free in the non-FIXED case */
-  if (unlikely(tslot->base.tts_tupleDescriptor == NULL))
-    elog(ERROR, "FIXME: SyncTraceTupleTableSlot does not support non-FIXED slots");
-  tslot->base.tts_values = tslot->wrapped->tts_values;
-  tslot->base.tts_isnull = tslot->wrapped->tts_isnull;
-
-  /* skip tts_mcxt */
-
-  tslot->base.tts_tid = tslot->wrapped->tts_tid;
-  tslot->base.tts_tableOid = tslot->wrapped->tts_tableOid;
+  if (base->tts_flags != wrap->tts_flags)
+    unsupportedSlotModification("tts_flags", direction);
+  if (base->tts_nvalid != wrap->tts_nvalid)
+    unsupportedSlotModification("tts_nvalid", direction);
+  /* skip tts_ops; they won't be the same */
+  if (base->tts_tupleDescriptor != wrap->tts_tupleDescriptor)
+    unsupportedSlotModification("tts_tupleDescriptor", direction);
+  if (base->tts_values != wrap->tts_values)
+    unsupportedSlotModification("tts_values", direction);
+  if (base->tts_isnull != wrap->tts_isnull)
+    unsupportedSlotModification("tts_isnull", direction);
+  /* skip tts_mcxt; we don't care if they're different */
+  if (ItemPointerGetBlockNumberNoCheck(&base->tts_tid) != ItemPointerGetBlockNumberNoCheck(&wrap->tts_tid)
+      || ItemPointerGetOffsetNumberNoCheck(&base->tts_tid) != ItemPointerGetOffsetNumberNoCheck(&wrap->tts_tid))
+    unsupportedSlotModification("tts_tid", direction);
+  if (base->tts_tableOid != wrap->tts_tableOid)
+    unsupportedSlotModification("tts_tableOid", direction);
 }
 
 static void tts_trace_clear(TupleTableSlot *slot) {
   TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("slot: %p %s", slot, slotToString(slot));
 
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
   ExecClearTuple(tslot->wrapped);
-  SyncTraceTupleTableSlot(tslot);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_nvalid = tslot->wrapped->tts_nvalid;
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
 }
 
 static void tts_trace_materialize(TupleTableSlot *slot) {
   TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("slot: %p %s", slot, slotToString(slot));
 
+  tslot->wrapped->tts_flags = slot->tts_flags;
+  tslot->wrapped->tts_nvalid = slot->tts_nvalid;
+  tslot->wrapped->tts_tableOid = slot->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
   ExecMaterializeSlot(tslot->wrapped);
-  SyncTraceTupleTableSlot(tslot);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_nvalid = tslot->wrapped->tts_nvalid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
 }
 
 static void tts_trace_copyslot(TupleTableSlot *dstslot,
@@ -154,8 +177,13 @@ static void tts_trace_copyslot(TupleTableSlot *dstslot,
   TRACE("dstslot: %p %s, srcslot: %p %s", dstslot, slotToString(dstslot),
         srcslot, slotToString(srcslot));
 
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
   ExecCopySlot(tslot->wrapped, srcslot);
-  SyncTraceTupleTableSlot(tslot);
+
+  dstslot->tts_flags = tslot->wrapped->tts_flags;
+  dstslot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
 }
 
 static Datum tts_trace_getsysattr(TupleTableSlot *slot, int attnum,
@@ -166,10 +194,15 @@ static Datum tts_trace_getsysattr(TupleTableSlot *slot, int attnum,
 
 static void tts_trace_getsomeattrs(TupleTableSlot *slot, int natts) {
   TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
-  TRACE("natts: %d, slot: %s", natts, slotToString(slot));
+  TRACE("natts: %d, slot: %p %s", natts, slot, slotToString(slot));
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
 
   slot_getsomeattrs_int(tslot->wrapped, natts);
-  SyncTraceTupleTableSlot(tslot);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_nvalid = tslot->wrapped->tts_nvalid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
 }
 
 static HeapTuple tts_trace_copy_heap_tuple(TupleTableSlot *slot) {
