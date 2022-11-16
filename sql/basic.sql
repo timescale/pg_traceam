@@ -6,3 +6,6 @@ SELECT * FROM test;
 
 INSERT INTO test VALUES (0, 'A');
 SELECT * FROM test;
+
+UPDATE test SET a = 1;
+SELECT * FROM test;

@@ -13,3 +13,10 @@ SELECT * FROM test;
  0 | A
 (1 row)
 
+UPDATE test SET a = 1;
+SELECT * FROM test;
+ a | b 
+---+---
+ 1 | A
+(1 row)
+

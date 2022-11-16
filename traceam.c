@@ -102,9 +102,23 @@ static bool traceam_index_fetch_tuple(struct IndexFetchTableData *scan,
 
 static bool traceam_fetch_row_version(Relation relation, ItemPointer tid,
                                       Snapshot snapshot, TupleTableSlot *slot) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        slotToString(slot));
-  return false;
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+  bool valid;
+
+  TRACE("relation: %s, slot: %p %s", RelationGetRelationName(relation),
+        slot, slotToString(slot));
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  valid = heapam_methods->tuple_fetch_row_version(relation, tid, snapshot,
+                                                  tslot->wrapped);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  slot->tts_tableOid = tslot->wrapped->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return valid;
 }
 
 static void traceam_get_latest_tid(TableScanDesc scan, ItemPointer tid) {
@@ -185,9 +199,22 @@ static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
                                       bool wait, TM_FailureData *tmfd,
                                       LockTupleMode *lockmode,
                                       bool *update_indexes) {
+  TM_Result res;
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
         slotToString(slot));
-  return TM_Ok;
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  res = heapam_methods->tuple_update(relation, otid, tslot->wrapped, cid,
+                                     snapshot, crosscheck, wait, tmfd, lockmode,
+                                     update_indexes);
+
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return res;
 }
 
 static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
