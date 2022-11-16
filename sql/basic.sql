@@ -14,3 +14,9 @@ SELECT * FROM test;
 ALTER TABLE test ALTER COLUMN b SET STORAGE EXTERNAL;
 INSERT INTO test VALUES(2, repeat('0123456789', 269));
 SELECT b = repeat('0123456789', 269) FROM test WHERE a = 2;
+
+-- system columns
+INSERT INTO test VALUES(3, 'B')
+  RETURNING txid_current() AS txid
+\gset
+SELECT tableoid = 'test'::regclass, xmin = :txid, a FROM test;

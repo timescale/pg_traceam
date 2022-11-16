@@ -188,8 +188,16 @@ static void tts_trace_copyslot(TupleTableSlot *dstslot,
 
 static Datum tts_trace_getsysattr(TupleTableSlot *slot, int attnum,
                                   bool *isnull) {
+  Datum res;
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+
   TRACE("attnum: %d, slot: %s", attnum, slotToString(slot));
-  return 0; /* silence compiler warnings */
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+  res = slot_getsysattr(tslot->wrapped, attnum, isnull);
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return res;
 }
 
 static void tts_trace_getsomeattrs(TupleTableSlot *slot, int natts) {

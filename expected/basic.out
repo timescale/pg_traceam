@@ -29,3 +29,15 @@ SELECT b = repeat('0123456789', 269) FROM test WHERE a = 2;
  t
 (1 row)
 
+-- system columns
+INSERT INTO test VALUES(3, 'B')
+  RETURNING txid_current() AS txid
+\gset
+SELECT tableoid = 'test'::regclass, xmin = :txid, a FROM test;
+ ?column? | ?column? | a 
+----------+----------+---
+ t        | f        | 1
+ t        | f        | 2
+ t        | t        | 3
+(3 rows)
+
