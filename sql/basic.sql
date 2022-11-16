@@ -27,3 +27,6 @@ COPY test FROM STDIN;
 5	D
 \.
 SELECT * FROM test WHERE a != 2;
+
+DELETE FROM test WHERE a = 2;
+SELECT * FROM test;

@@ -240,8 +240,10 @@ static TM_Result traceam_tuple_delete(Relation relation, ItemPointer tid,
                                       CommandId cid, Snapshot snapshot,
                                       Snapshot crosscheck, bool wait,
                                       TM_FailureData *tmfd, bool changingPart) {
-  TRACE("relation: %s", RelationGetRelationName(relation));
-  return TM_Ok;
+  TRACE("relation: %s, tid: %u:%u", RelationGetRelationName(relation),
+        BlockIdGetBlockNumber(&tid->ip_blkid), tid->ip_posid);
+  return heapam_methods->tuple_delete(relation, tid, cid, snapshot, crosscheck,
+                                      wait, tmfd, changingPart);
 }
 
 static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,

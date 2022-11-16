@@ -52,3 +52,13 @@ SELECT * FROM test WHERE a != 2;
  5 | D
 (4 rows)
 
+DELETE FROM test WHERE a = 2;
+SELECT * FROM test;
+ a | b 
+---+---
+ 1 | A
+ 3 | B
+ 4 | C
+ 5 | D
+(4 rows)
+
