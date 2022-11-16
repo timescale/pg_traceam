@@ -9,3 +9,8 @@ SELECT * FROM test;
 
 UPDATE test SET a = 1;
 SELECT * FROM test;
+
+-- invoke TOAST
+ALTER TABLE test ALTER COLUMN b SET STORAGE EXTERNAL;
+INSERT INTO test VALUES(2, repeat('0123456789', 269));
+SELECT b = repeat('0123456789', 269) FROM test WHERE a = 2;

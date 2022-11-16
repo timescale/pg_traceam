@@ -81,23 +81,42 @@ static bool traceam_scan_getnextslot(TableScanDesc scan,
 
 static IndexFetchTableData *traceam_index_fetch_begin(Relation relation) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  return NULL;
+  return heapam_methods->index_fetch_begin(relation);
 }
 
 static void traceam_index_fetch_reset(IndexFetchTableData *scan) {
-  /* nothing to do here */
+  TRACE("relation: %s", RelationGetRelationName(scan->rel));
+  return heapam_methods->index_fetch_reset(scan);
 }
 
 static void traceam_index_fetch_end(IndexFetchTableData *scan) {
-  /* nothing to do here */
+  TRACE("relation: %s", RelationGetRelationName(scan->rel));
+  return heapam_methods->index_fetch_end(scan);
 }
 
 static bool traceam_index_fetch_tuple(struct IndexFetchTableData *scan,
                                       ItemPointer tid, Snapshot snapshot,
                                       TupleTableSlot *slot, bool *call_again,
                                       bool *all_dead) {
-  TRACE("slot: %s", slotToString(slot));
-  return 0;
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+  bool valid;
+
+  TRACE("relation: %s, tid: %u:%u, slot: %s",
+        RelationGetRelationName(scan->rel),
+        BlockIdGetBlockNumber(&tid->ip_blkid), tid->ip_posid,
+        slotToString(slot));
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  valid = heapam_methods->index_fetch_tuple(scan, tid, snapshot, tslot->wrapped,
+                                            call_again, all_dead);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  slot->tts_tableOid = tslot->wrapped->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return valid;
 }
 
 static bool traceam_fetch_row_version(Relation relation, ItemPointer tid,
@@ -320,6 +339,17 @@ static Oid traceam_relation_toast_am(Relation relation) {
   return heapam_methods->relation_toast_am(relation);
 }
 
+static void traceam_relation_fetch_toast_slice(Relation toastrel, Oid valueid,
+                                               int32 attrsize,
+                                               int32 sliceoffset,
+                                               int32 slicelength,
+                                               struct varlena *result) {
+  TRACE("relation: %s", RelationGetRelationName(toastrel));
+  return heapam_methods->relation_fetch_toast_slice(toastrel, valueid, attrsize,
+                                                    sliceoffset, slicelength,
+                                                    result);
+}
+
 static void traceam_estimate_rel_size(Relation relation, int32 *attr_widths,
                                       BlockNumber *pages, double *tuples,
                                       double *allvisfrac) {
@@ -403,6 +433,7 @@ static const TableAmRoutine traceam_methods = {
     .relation_size = traceam_relation_size,
     .relation_needs_toast_table = traceam_relation_needs_toast_table,
     .relation_toast_am = traceam_relation_toast_am,
+    .relation_fetch_toast_slice = traceam_relation_fetch_toast_slice,
 
     .relation_estimate_size = traceam_estimate_rel_size,
 

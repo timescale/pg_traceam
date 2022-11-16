@@ -20,3 +20,12 @@ SELECT * FROM test;
  1 | A
 (1 row)
 
+-- invoke TOAST
+ALTER TABLE test ALTER COLUMN b SET STORAGE EXTERNAL;
+INSERT INTO test VALUES(2, repeat('0123456789', 269));
+SELECT b = repeat('0123456789', 269) FROM test WHERE a = 2;
+ ?column? 
+----------
+ t
+(1 row)
+

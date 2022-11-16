@@ -206,12 +206,16 @@ static void tts_trace_getsomeattrs(TupleTableSlot *slot, int natts) {
 }
 
 static HeapTuple tts_trace_copy_heap_tuple(TupleTableSlot *slot) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+  HeapTuple tuple;
+
   TRACE("slot: %s", slotToString(slot));
 
-  Assert(!TTS_EMPTY(slot));
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+  tuple = ExecCopySlotHeapTuple(tslot->wrapped);
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
 
-  return heap_form_tuple(slot->tts_tupleDescriptor, slot->tts_values,
-                         slot->tts_isnull);
+  return tuple;
 }
 
 static MinimalTuple tts_trace_copy_minimal_tuple(TupleTableSlot *slot) {
