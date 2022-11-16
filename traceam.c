@@ -201,7 +201,39 @@ static void traceam_tuple_complete_speculative(Relation relation,
 static void traceam_multi_insert(Relation relation, TupleTableSlot **slots,
                                  int ntuples, CommandId cid, int options,
                                  BulkInsertState bistate) {
-  /* nothing to do */
+  int i;
+  TraceTupleTableSlot *tslot;
+  TupleTableSlot **wrapped;
+
+  TRACE("relation: %s, number: %d, options: %X",
+        RelationGetRelationName(relation), ntuples, options);
+  Assert(ntuples > 0);
+
+  /* Every slot in the array needs to be replaced by its wrapped buffer slot. */
+  wrapped = palloc(ntuples * sizeof(TupleTableSlot *));
+
+  for (i = 0; i < ntuples; ++i) {
+      tslot = (TraceTupleTableSlot *) slots[i];
+
+      TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+      wrapped[i] = tslot->wrapped;
+  }
+
+  heapam_methods->multi_insert(relation, wrapped, ntuples, cid, options,
+                               bistate);
+
+  /* Translate any changes back to our slot type. */
+  for (i = 0; i < ntuples; ++i) {
+      tslot = (TraceTupleTableSlot *) slots[i];
+
+      slots[i]->tts_tid = tslot->wrapped->tts_tid;
+      TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+  }
+
+  /*
+   * Note that we're explicitly allowed to leak context memory (in this case,
+   * the wrapped array) in this API; maybe for raw speed? Caller will clean up.
+   */
 }
 
 static TM_Result traceam_tuple_delete(Relation relation, ItemPointer tid,
@@ -248,7 +280,8 @@ static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
 
 static void traceam_finish_bulk_insert(Relation relation, int options) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  /* nothing to do */
+  if (heapam_methods->finish_bulk_insert)
+      return heapam_methods->finish_bulk_insert(relation, options);
 }
 
 static void traceam_relation_set_new_filenode(Relation relation,

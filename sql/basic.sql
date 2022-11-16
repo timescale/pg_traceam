@@ -20,3 +20,10 @@ INSERT INTO test VALUES(3, 'B')
   RETURNING txid_current() AS txid
 \gset
 SELECT tableoid = 'test'::regclass, xmin = :txid, a FROM test;
+
+-- bulk load
+COPY test FROM STDIN;
+4	C
+5	D
+\.
+SELECT * FROM test WHERE a != 2;

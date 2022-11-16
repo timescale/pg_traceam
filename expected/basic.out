@@ -41,3 +41,14 @@ SELECT tableoid = 'test'::regclass, xmin = :txid, a FROM test;
  t        | t        | 3
 (3 rows)
 
+-- bulk load
+COPY test FROM STDIN;
+SELECT * FROM test WHERE a != 2;
+ a | b 
+---+---
+ 1 | A
+ 3 | B
+ 4 | C
+ 5 | D
+(4 rows)
+
