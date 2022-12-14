@@ -29,6 +29,7 @@ void _PG_init(void);
                                  errbacktrace()));
 
 static const TableAmRoutine traceam_methods;
+static const TableAmRoutine *heapam_methods;
 
 static const TupleTableSlotOps *traceam_slot_callbacks(Relation relation) {
   TRACE("relation: %s", RelationGetRelationName(relation));
@@ -39,27 +40,15 @@ static TableScanDesc traceam_scan_begin(Relation relation, Snapshot snapshot,
                                         int nkeys, ScanKey key,
                                         ParallelTableScanDesc parallel_scan,
                                         uint32 flags) {
-  TableScanDesc scan;
-
   TRACE("relation: %s, nkeys: %d, flags: %x", RelationGetRelationName(relation),
         nkeys, flags);
-  scan = palloc(sizeof(TableScanDescData));
-
-  RelationIncrementReferenceCount(relation);
-
-  scan->rs_rd = relation;
-  scan->rs_snapshot = snapshot;
-  scan->rs_nkeys = nkeys;
-  scan->rs_flags = flags;
-  scan->rs_parallel = parallel_scan;
-
-  return scan;
+  return heapam_methods->scan_begin(relation, snapshot, nkeys, key,
+                                    parallel_scan, flags);
 }
 
 static void traceam_scan_end(TableScanDesc scan) {
   TRACE("relation: %s", RelationGetRelationName(scan->rs_rd));
-  RelationDecrementReferenceCount(scan->rs_rd);
-  pfree(scan);
+  return heapam_methods->scan_end(scan);
 }
 
 static void traceam_scan_rescan(TableScanDesc scan, ScanKey key,
@@ -71,37 +60,84 @@ static void traceam_scan_rescan(TableScanDesc scan, ScanKey key,
 static bool traceam_scan_getnextslot(TableScanDesc scan,
                                      ScanDirection direction,
                                      TupleTableSlot *slot) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+  bool valid;
+
   TRACE("relation: %s, slot: %s", RelationGetRelationName(scan->rs_rd),
         slotToString(slot));
-  return true;
+
+  tslot->wrapped->tts_tableOid = slot->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  valid = heapam_methods->scan_getnextslot(scan, direction, tslot->wrapped);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_nvalid = tslot->wrapped->tts_nvalid;
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return valid;
 }
 
 static IndexFetchTableData *traceam_index_fetch_begin(Relation relation) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  return NULL;
+  return heapam_methods->index_fetch_begin(relation);
 }
 
 static void traceam_index_fetch_reset(IndexFetchTableData *scan) {
-  /* nothing to do here */
+  TRACE("relation: %s", RelationGetRelationName(scan->rel));
+  return heapam_methods->index_fetch_reset(scan);
 }
 
 static void traceam_index_fetch_end(IndexFetchTableData *scan) {
-  /* nothing to do here */
+  TRACE("relation: %s", RelationGetRelationName(scan->rel));
+  return heapam_methods->index_fetch_end(scan);
 }
 
 static bool traceam_index_fetch_tuple(struct IndexFetchTableData *scan,
                                       ItemPointer tid, Snapshot snapshot,
                                       TupleTableSlot *slot, bool *call_again,
                                       bool *all_dead) {
-  TRACE("slot: %s", slotToString(slot));
-  return 0;
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+  bool valid;
+
+  TRACE("relation: %s, tid: %u:%u, slot: %s",
+        RelationGetRelationName(scan->rel),
+        BlockIdGetBlockNumber(&tid->ip_blkid), tid->ip_posid,
+        slotToString(slot));
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  valid = heapam_methods->index_fetch_tuple(scan, tid, snapshot, tslot->wrapped,
+                                            call_again, all_dead);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  slot->tts_tableOid = tslot->wrapped->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return valid;
 }
 
 static bool traceam_fetch_row_version(Relation relation, ItemPointer tid,
                                       Snapshot snapshot, TupleTableSlot *slot) {
-  TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
-        slotToString(slot));
-  return false;
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+  bool valid;
+
+  TRACE("relation: %s, slot: %p %s", RelationGetRelationName(relation),
+        slot, slotToString(slot));
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  valid = heapam_methods->tuple_fetch_row_version(relation, tid, snapshot,
+                                                  tslot->wrapped);
+
+  slot->tts_flags = tslot->wrapped->tts_flags;
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  slot->tts_tableOid = tslot->wrapped->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return valid;
 }
 
 static void traceam_get_latest_tid(TableScanDesc scan, ItemPointer tid) {
@@ -130,8 +166,17 @@ static TransactionId traceam_index_delete_tuples(Relation relation,
 static void traceam_tuple_insert(Relation relation, TupleTableSlot *slot,
                                  CommandId cid, int options,
                                  BulkInsertState bistate) {
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
         slotToString(slot));
+
+  tslot->wrapped->tts_tableOid = slot->tts_tableOid;
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  heapam_methods->tuple_insert(relation, tslot->wrapped, cid, options, bistate);
+
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
 }
 
 static void traceam_tuple_insert_speculative(Relation relation,
@@ -156,15 +201,49 @@ static void traceam_tuple_complete_speculative(Relation relation,
 static void traceam_multi_insert(Relation relation, TupleTableSlot **slots,
                                  int ntuples, CommandId cid, int options,
                                  BulkInsertState bistate) {
-  /* nothing to do */
+  int i;
+  TraceTupleTableSlot *tslot;
+  TupleTableSlot **wrapped;
+
+  TRACE("relation: %s, number: %d, options: %X",
+        RelationGetRelationName(relation), ntuples, options);
+  Assert(ntuples > 0);
+
+  /* Every slot in the array needs to be replaced by its wrapped buffer slot. */
+  wrapped = palloc(ntuples * sizeof(TupleTableSlot *));
+
+  for (i = 0; i < ntuples; ++i) {
+      tslot = (TraceTupleTableSlot *) slots[i];
+
+      TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+      wrapped[i] = tslot->wrapped;
+  }
+
+  heapam_methods->multi_insert(relation, wrapped, ntuples, cid, options,
+                               bistate);
+
+  /* Translate any changes back to our slot type. */
+  for (i = 0; i < ntuples; ++i) {
+      tslot = (TraceTupleTableSlot *) slots[i];
+
+      slots[i]->tts_tid = tslot->wrapped->tts_tid;
+      TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+  }
+
+  /*
+   * Note that we're explicitly allowed to leak context memory (in this case,
+   * the wrapped array) in this API; maybe for raw speed? Caller will clean up.
+   */
 }
 
 static TM_Result traceam_tuple_delete(Relation relation, ItemPointer tid,
                                       CommandId cid, Snapshot snapshot,
                                       Snapshot crosscheck, bool wait,
                                       TM_FailureData *tmfd, bool changingPart) {
-  TRACE("relation: %s", RelationGetRelationName(relation));
-  return TM_Ok;
+  TRACE("relation: %s, tid: %u:%u", RelationGetRelationName(relation),
+        BlockIdGetBlockNumber(&tid->ip_blkid), tid->ip_posid);
+  return heapam_methods->tuple_delete(relation, tid, cid, snapshot, crosscheck,
+                                      wait, tmfd, changingPart);
 }
 
 static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
@@ -173,9 +252,22 @@ static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
                                       bool wait, TM_FailureData *tmfd,
                                       LockTupleMode *lockmode,
                                       bool *update_indexes) {
+  TM_Result res;
+  TraceTupleTableSlot *tslot = (TraceTupleTableSlot *) slot;
+
   TRACE("relation: %s, slot: %s", RelationGetRelationName(relation),
         slotToString(slot));
-  return TM_Ok;
+
+  TraceEnsureNoSlotChanges(tslot, DIR_INCOMING);
+
+  res = heapam_methods->tuple_update(relation, otid, tslot->wrapped, cid,
+                                     snapshot, crosscheck, wait, tmfd, lockmode,
+                                     update_indexes);
+
+  slot->tts_tid = tslot->wrapped->tts_tid;
+  TraceEnsureNoSlotChanges(tslot, DIR_OUTGOING);
+
+  return res;
 }
 
 static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
@@ -190,7 +282,8 @@ static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
 
 static void traceam_finish_bulk_insert(Relation relation, int options) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  /* nothing to do */
+  if (heapam_methods->finish_bulk_insert)
+      return heapam_methods->finish_bulk_insert(relation, options);
 }
 
 static void traceam_relation_set_new_filenode(Relation relation,
@@ -201,6 +294,10 @@ static void traceam_relation_set_new_filenode(Relation relation,
   TRACE("relation: %s, newrnode: {spcNode: %d, dbNode: %d, relNode: %d}",
         RelationGetRelationName(relation), newrnode->spcNode, newrnode->dbNode,
         newrnode->relNode);
+
+  return heapam_methods->relation_set_new_filenode(relation, newrnode,
+                                                   persistence, freezeXid,
+                                                   minmulti);
 }
 
 static void traceam_relation_nontransactional_truncate(Relation relation) {
@@ -250,7 +347,12 @@ static double traceam_index_build_range_scan(
         RelationGetRelationName(tableRelation),
         RelationGetRelationName(indexRelation),
         scan ? RelationGetRelationName(scan->rs_rd) : "<>");
-  return 0;
+
+  return heapam_methods->index_build_range_scan(tableRelation, indexRelation,
+                                                indexInfo, allow_sync,
+                                                anyvisible, progress,
+                                                start_blockno, numblocks,
+                                                callback, callback_state, scan);
 }
 
 static void traceam_index_validate_scan(Relation tableRelation,
@@ -262,23 +364,39 @@ static void traceam_index_validate_scan(Relation tableRelation,
 }
 
 static uint64 traceam_relation_size(Relation relation, ForkNumber forkNumber) {
-  TRACE("relation: %s", RelationGetRelationName(relation));
-  return 0;
+  TRACE("relation: %s, fork: %d",
+        RelationGetRelationName(relation), forkNumber);
+  return heapam_methods->relation_size(relation, forkNumber);
 }
 
 static bool traceam_relation_needs_toast_table(Relation relation) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  return false;
+  return heapam_methods->relation_needs_toast_table(relation);
+}
+
+static Oid traceam_relation_toast_am(Relation relation) {
+  TRACE("relation: %s", RelationGetRelationName(relation));
+  return heapam_methods->relation_toast_am(relation);
+}
+
+static void traceam_relation_fetch_toast_slice(Relation toastrel, Oid valueid,
+                                               int32 attrsize,
+                                               int32 sliceoffset,
+                                               int32 slicelength,
+                                               struct varlena *result) {
+  TRACE("relation: %s", RelationGetRelationName(toastrel));
+  return heapam_methods->relation_fetch_toast_slice(toastrel, valueid, attrsize,
+                                                    sliceoffset, slicelength,
+                                                    result);
 }
 
 static void traceam_estimate_rel_size(Relation relation, int32 *attr_widths,
                                       BlockNumber *pages, double *tuples,
                                       double *allvisfrac) {
   TRACE("relation: %s", RelationGetRelationName(relation));
-  *attr_widths = 0;
-  *tuples = 0;
-  *allvisfrac = 0;
-  *pages = 0;
+
+  return heapam_methods->relation_estimate_size(relation, attr_widths, pages,
+                                                tuples, allvisfrac);
 }
 
 static bool traceam_scan_bitmap_next_block(TableScanDesc scan,
@@ -354,6 +472,8 @@ static const TableAmRoutine traceam_methods = {
 
     .relation_size = traceam_relation_size,
     .relation_needs_toast_table = traceam_relation_needs_toast_table,
+    .relation_toast_am = traceam_relation_toast_am,
+    .relation_fetch_toast_slice = traceam_relation_fetch_toast_slice,
 
     .relation_estimate_size = traceam_estimate_rel_size,
 
@@ -365,4 +485,8 @@ static const TableAmRoutine traceam_methods = {
 
 Datum traceam_handler(PG_FUNCTION_ARGS) {
   PG_RETURN_POINTER(&traceam_methods);
+}
+
+void _PG_init(void) {
+  heapam_methods = GetHeapamTableAmRoutine();
 }

@@ -1,0 +1,64 @@
+CREATE EXTENSION traceam;
+SET client_min_messages TO 'debug2';
+CREATE TABLE test (a int, b text) USING traceam;
+SELECT * FROM test;
+ a | b 
+---+---
+(0 rows)
+
+INSERT INTO test VALUES (0, 'A');
+SELECT * FROM test;
+ a | b 
+---+---
+ 0 | A
+(1 row)
+
+UPDATE test SET a = 1;
+SELECT * FROM test;
+ a | b 
+---+---
+ 1 | A
+(1 row)
+
+-- invoke TOAST
+ALTER TABLE test ALTER COLUMN b SET STORAGE EXTERNAL;
+INSERT INTO test VALUES(2, repeat('0123456789', 269));
+SELECT b = repeat('0123456789', 269) FROM test WHERE a = 2;
+ ?column? 
+----------
+ t
+(1 row)
+
+-- system columns
+INSERT INTO test VALUES(3, 'B')
+  RETURNING txid_current() AS txid
+\gset
+SELECT tableoid = 'test'::regclass, xmin = :txid, a FROM test;
+ ?column? | ?column? | a 
+----------+----------+---
+ t        | f        | 1
+ t        | f        | 2
+ t        | t        | 3
+(3 rows)
+
+-- bulk load
+COPY test FROM STDIN;
+SELECT * FROM test WHERE a != 2;
+ a | b 
+---+---
+ 1 | A
+ 3 | B
+ 4 | C
+ 5 | D
+(4 rows)
+
+DELETE FROM test WHERE a = 2;
+SELECT * FROM test;
+ a | b 
+---+---
+ 1 | A
+ 3 | B
+ 4 | C
+ 5 | D
+(4 rows)
+
