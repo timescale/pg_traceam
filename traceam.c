@@ -347,7 +347,12 @@ static double traceam_index_build_range_scan(
         RelationGetRelationName(tableRelation),
         RelationGetRelationName(indexRelation),
         scan ? RelationGetRelationName(scan->rs_rd) : "<>");
-  return 0;
+
+  return heapam_methods->index_build_range_scan(tableRelation, indexRelation,
+                                                indexInfo, allow_sync,
+                                                anyvisible, progress,
+                                                start_blockno, numblocks,
+                                                callback, callback_state, scan);
 }
 
 static void traceam_index_validate_scan(Relation tableRelation,

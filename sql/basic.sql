@@ -30,3 +30,7 @@ SELECT * FROM test WHERE a != 2;
 
 DELETE FROM test WHERE a = 2;
 SELECT * FROM test;
+
+CREATE INDEX ON test (a);
+EXPLAIN (COSTS OFF) SELECT * FROM test WHERE a = 1;
+SELECT * FROM test WHERE a = 1;
