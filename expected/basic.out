@@ -1,4 +1,4 @@
---SET client_min_messages TO DEBUG2;
+--SET client_min_messages TO DEBUG3;
 CREATE TABLE foo(a int) USING traceam;
 INSERT INTO foo VALUES (1),(2);
 SELECT * FROM foo;
@@ -8,9 +8,34 @@ SELECT * FROM foo;
  2
 (2 rows)
 
+-- This will use the transactional version of truncate.
 TRUNCATE foo;
 SELECT * FROM foo;
  a 
 ---
 (0 rows)
 
+START TRANSACTION;
+CREATE TABLE bar(a int) using traceam;
+SELECT * FROM bar;
+ a 
+---
+(0 rows)
+
+INSERT INTO bar VALUES (1),(2);
+SELECT * FROM bar;
+ a 
+---
+ 1
+ 2
+(2 rows)
+
+-- This will use the non-transactional version of truncate since we
+-- created the relation in the transaction.
+TRUNCATE bar;
+SELECT * FROM bar;
+ a 
+---
+(0 rows)
+
+COMMIT;
