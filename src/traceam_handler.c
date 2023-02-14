@@ -260,21 +260,21 @@ static void traceam_finish_bulk_insert(Relation relation, int options) {
   /* nothing to do */
 }
 
-static void traceam_relation_set_new_filenode(Relation relation,
-                                              const RelFileNode *newrnode,
-                                              char persistence,
-                                              TransactionId *freezeXid,
-                                              MultiXactId *minmulti) {
-  TRACE("relation: %s, newrnode: {spcNode: %d, dbNode: %d, relNode: %d}",
+static void traceam_relation_set_new_filelocator(Relation relation,
+                                                 const RelFileLocator *newrlocator,
+                                                 char persistence,
+                                                 TransactionId *freezeXid,
+                                                 MultiXactId *minmulti) {
+  TRACE("relation: %s, newrnode: {spcNode: %u, dbNode: %u, relNode: %u}",
         RelationGetRelationName(relation),
-        newrnode->spcNode,
-        newrnode->dbNode,
-        newrnode->relNode);
+        newrlocator->spcOid,
+        newrlocator->dbOid,
+        newrlocator->relNumber);
   /* On a truncate, the old relfilenode is scheduled for unlinking
      before this function is called, so we never see the old file
      node.  We need to have a table to map the existing relation to
      the file node to be able to modify this internally. */
-  trace_create_filenode(relation, newrnode, persistence);
+  trace_create_filenode(relation, newrlocator, persistence);
 }
 
 static void traceam_relation_nontransactional_truncate(Relation relation) {
@@ -286,7 +286,7 @@ static void traceam_relation_nontransactional_truncate(Relation relation) {
   table_close(guts, AccessExclusiveLock);
 }
 
-static void traceam_copy_data(Relation relation, const RelFileNode *newrnode) {
+static void traceam_copy_data(Relation relation, const RelFileLocator *newrlocator) {
   TRACE("relation: %s", RelationGetRelationName(relation));
 #if 0
   /* This needs to copy to a new filenode, so we need to create a
@@ -432,7 +432,7 @@ static const TableAmRoutine traceam_methods = {
     .tuple_satisfies_snapshot = traceam_tuple_satisfies_snapshot,
     .index_delete_tuples = traceam_index_delete_tuples,
 
-    .relation_set_new_filenode = traceam_relation_set_new_filenode,
+    .relation_set_new_filelocator = traceam_relation_set_new_filelocator,
     .relation_nontransactional_truncate =
         traceam_relation_nontransactional_truncate,
     .relation_copy_data = traceam_copy_data,
