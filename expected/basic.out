@@ -1,0 +1,16 @@
+--SET client_min_messages TO DEBUG2;
+CREATE TABLE foo(a int) USING traceam;
+INSERT INTO foo VALUES (1),(2);
+SELECT * FROM foo;
+ a 
+---
+ 1
+ 2
+(2 rows)
+
+TRUNCATE foo;
+SELECT * FROM foo;
+ a 
+---
+(0 rows)
+

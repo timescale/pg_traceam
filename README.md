@@ -36,3 +36,8 @@ DEBUG:  traceam_relation_needs_toast_table relation: foo
 DEBUG:  EventTriggerInvoke 17467
 CREATE TABLE
 ```
+
+## Implementation notes
+
+There are [notes on the implementation](NOTES.md) available that
+covers details of the interaction with PostgreSQL.
