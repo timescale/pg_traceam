@@ -262,9 +262,15 @@ static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,
                                     CommandId cid, LockTupleMode mode,
                                     LockWaitPolicy wait_policy, uint8 flags,
                                     TM_FailureData *tmfd) {
+  Relation inner;
+  TM_Result result;
   TRACE("relation: %s, cid: %d", RelationGetRelationName(relation), cid);
   TRACE_DETAIL("slot: %s", slotToString(slot));
-  return TM_Ok;
+  inner = trace_open_filenode(relation->rd_rel->relfilenode, AccessShareLock);
+  result = table_tuple_lock(inner, tid, snapshot, slot, cid, mode, wait_policy,
+                            flags, tmfd);
+  table_close(inner, NoLock);
+  return result;
 }
 
 static void traceam_finish_bulk_insert(Relation relation, int options) {

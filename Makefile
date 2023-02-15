@@ -10,6 +10,9 @@ PG_CPPFLAGS = -Isrc
 REGRESS = basic
 REGRESS_OPTS += --load-extension=traceam
 
+ISOLATION = iso_basic
+ISOLATION_OPTS += --load-extension=traceam
+
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)

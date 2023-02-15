@@ -148,6 +148,8 @@ available in the relation structure, AFAICT.)
 An update is built on top of a scan. For each tuple satisfying the
 update predicate, the latest tuple version is fetched via
 `table_tuple_fetch_row_version`, then updated via `table_tuple_update`.
+Concurrent modifications may result in a retry, depending on the
+isolation level, in which case the row may be `table_tuple_lock`ed.
 
 Updates have a similar problem to inserts, in that the inner relation
 must be continually reopened to access the inner tuples.

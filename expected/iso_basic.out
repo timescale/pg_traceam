@@ -1,0 +1,215 @@
+Parsed test spec with 2 sessions
+
+starting permutation: s1b1 s2b1 s1u s2u s1c s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s2u: UPDATE iso_basic SET i = i * 2; <waiting ...>
+step s1c: COMMIT;
+step s2u: <... completed>
+step s2c: COMMIT;
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+
+starting permutation: s1b1 s2b1 s1u s1c s2u s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s1c: COMMIT;
+step s2u: UPDATE iso_basic SET i = i * 2;
+step s2c: COMMIT;
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+
+starting permutation: s1b2 s2b2 s1u s2u s1c s2c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s2u: UPDATE iso_basic SET i = i * 2; <waiting ...>
+step s1c: COMMIT;
+step s2u: <... completed>
+ERROR:  could not serialize access due to concurrent update
+step s2c: COMMIT;
+ i
+--
+ 3
+ 6
+ 9
+12
+15
+(5 rows)
+
+ i
+--
+ 3
+ 6
+ 9
+12
+15
+(5 rows)
+
+
+starting permutation: s1b2 s2b2 s1u s1c s2u s2c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s1c: COMMIT;
+step s2u: UPDATE iso_basic SET i = i * 2;
+step s2c: COMMIT;
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+
+starting permutation: s1b1 s2b2 s1u s2u s1c s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s2u: UPDATE iso_basic SET i = i * 2; <waiting ...>
+step s1c: COMMIT;
+step s2u: <... completed>
+ERROR:  could not serialize access due to concurrent update
+step s2c: COMMIT;
+ i
+--
+ 3
+ 6
+ 9
+12
+15
+(5 rows)
+
+ i
+--
+ 3
+ 6
+ 9
+12
+15
+(5 rows)
+
+
+starting permutation: s1b1 s2b2 s1u s1c s2u s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s1c: COMMIT;
+step s2u: UPDATE iso_basic SET i = i * 2;
+step s2c: COMMIT;
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+
+starting permutation: s1b2 s2b1 s1u s2u s1c s2c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s2u: UPDATE iso_basic SET i = i * 2; <waiting ...>
+step s1c: COMMIT;
+step s2u: <... completed>
+step s2c: COMMIT;
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+
+starting permutation: s1b2 s2b1 s1u s1c s2u s2c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s1c: COMMIT;
+step s2u: UPDATE iso_basic SET i = i * 2;
+step s2c: COMMIT;
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
+ i
+--
+ 6
+12
+18
+24
+30
+(5 rows)
+
