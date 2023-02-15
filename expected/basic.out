@@ -8,6 +8,14 @@ SELECT * FROM foo;
  2
 (2 rows)
 
+UPDATE foo SET a = a * 2 WHERE a > 1;
+SELECT * FROM foo;
+ a 
+---
+ 1
+ 4
+(2 rows)
+
 -- This will use the transactional version of truncate.
 TRUNCATE foo;
 SELECT * FROM foo;

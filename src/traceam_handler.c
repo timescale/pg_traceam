@@ -152,9 +152,15 @@ static bool traceam_index_fetch_tuple(struct IndexFetchTableData *scan,
 
 static bool traceam_fetch_row_version(Relation relation, ItemPointer tid,
                                       Snapshot snapshot, TupleTableSlot *slot) {
+  Relation inner;
+  bool result;
   TRACE("relation: %s", RelationGetRelationName(relation));
   TRACE_DETAIL("slot: %s", slotToString(slot));
-  return false;
+  inner = trace_open_filenode(relation->rd_rel->relfilenode, AccessShareLock);
+  /* XXX see notes above regarding copying slots */
+  result = table_tuple_fetch_row_version(inner, tid, snapshot, slot);
+  table_close(inner, NoLock);
+  return result;
 }
 
 static void traceam_get_latest_tid(TableScanDesc scan, ItemPointer tid) {
@@ -240,9 +246,15 @@ static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
                                       bool wait, TM_FailureData *tmfd,
                                       LockTupleMode *lockmode,
                                       bool *update_indexes) {
+  Relation inner;
+  TM_Result result;
   TRACE("relation: %s, cid: %d", RelationGetRelationName(relation), cid);
   TRACE_DETAIL("slot: %s", slotToString(slot));
-  return TM_Ok;
+  inner = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
+  result = table_tuple_update(inner, otid, slot, cid, snapshot, crosscheck,
+                              wait, tmfd, lockmode, update_indexes);
+  table_close(inner, NoLock);
+  return result;
 }
 
 static TM_Result traceam_tuple_lock(Relation relation, ItemPointer tid,

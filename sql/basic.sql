@@ -3,6 +3,9 @@ CREATE TABLE foo(a int) USING traceam;
 INSERT INTO foo VALUES (1),(2);
 SELECT * FROM foo;
 
+UPDATE foo SET a = a * 2 WHERE a > 1;
+SELECT * FROM foo;
+
 -- This will use the transactional version of truncate.
 TRUNCATE foo;
 SELECT * FROM foo;
