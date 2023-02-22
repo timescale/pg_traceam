@@ -236,8 +236,14 @@ static TM_Result traceam_tuple_delete(Relation relation, ItemPointer tid,
                                       CommandId cid, Snapshot snapshot,
                                       Snapshot crosscheck, bool wait,
                                       TM_FailureData *tmfd, bool changingPart) {
-  TRACE("relation: %s", RelationGetRelationName(relation));
-  return TM_Ok;
+  Relation inner;
+  TM_Result result;
+  TRACE("relation: %s, cid: %d", RelationGetRelationName(relation), cid);
+  inner = trace_open_filenode(relation->rd_rel->relfilenode, RowExclusiveLock);
+  result = table_tuple_delete(inner, tid, cid, snapshot, crosscheck, wait, tmfd,
+                              changingPart);
+  table_close(inner, NoLock);
+  return result;
 }
 
 static TM_Result traceam_tuple_update(Relation relation, ItemPointer otid,
