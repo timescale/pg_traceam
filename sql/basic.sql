@@ -6,6 +6,17 @@ SELECT * FROM foo;
 UPDATE foo SET a = a * 2 WHERE a > 1;
 SELECT * FROM foo;
 
+-- Nonsense self-merge: src's 1 will match tgt's 4, replacing tgt's 4 with 10.
+-- src's 4 will be unmatched and re-inserted.
+MERGE INTO foo AS tgt
+     USING foo AS src ON src.a * 4 = tgt.a
+      WHEN NOT MATCHED THEN INSERT VALUES (src.a)
+      WHEN MATCHED THEN UPDATE SET a = src.a * 10;
+SELECT * FROM foo ORDER BY 1;
+
+DELETE FROM foo WHERE a > 1;
+SELECT * FROM foo;
+
 -- This will use the transactional version of truncate.
 TRUNCATE foo;
 SELECT * FROM foo;

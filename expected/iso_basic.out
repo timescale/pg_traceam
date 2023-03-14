@@ -213,3 +213,246 @@ step s2c: COMMIT;
 30
 (5 rows)
 
+
+starting permutation: s1b1 s2b1 s1d s2d s1c s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1d: DELETE FROM iso_basic WHERE i > 3;
+step s2d: DELETE FROM iso_basic WHERE i > 1; <waiting ...>
+step s1c: COMMIT;
+step s2d: <... completed>
+step s2c: COMMIT;
+i
+-
+1
+(1 row)
+
+i
+-
+1
+(1 row)
+
+
+starting permutation: s1b1 s2b1 s1d s1c s2d s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1d: DELETE FROM iso_basic WHERE i > 3;
+step s1c: COMMIT;
+step s2d: DELETE FROM iso_basic WHERE i > 1;
+step s2c: COMMIT;
+i
+-
+1
+(1 row)
+
+i
+-
+1
+(1 row)
+
+
+starting permutation: s1b2 s2b2 s1d s2d s1c s2c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s1d: DELETE FROM iso_basic WHERE i > 3;
+step s2d: DELETE FROM iso_basic WHERE i > 1; <waiting ...>
+step s1c: COMMIT;
+step s2d: <... completed>
+ERROR:  could not serialize access due to concurrent delete
+step s2c: COMMIT;
+i
+-
+1
+2
+3
+(3 rows)
+
+i
+-
+1
+2
+3
+(3 rows)
+
+
+starting permutation: s1b2 s2b2 s1d s1c s2d s2c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s1d: DELETE FROM iso_basic WHERE i > 3;
+step s1c: COMMIT;
+step s2d: DELETE FROM iso_basic WHERE i > 1;
+step s2c: COMMIT;
+i
+-
+1
+(1 row)
+
+i
+-
+1
+(1 row)
+
+
+starting permutation: s1b1 s2b1 s1d s2u s1c s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1d: DELETE FROM iso_basic WHERE i > 3;
+step s2u: UPDATE iso_basic SET i = i * 2; <waiting ...>
+step s1c: COMMIT;
+step s2u: <... completed>
+step s2c: COMMIT;
+i
+-
+2
+4
+6
+(3 rows)
+
+i
+-
+2
+4
+6
+(3 rows)
+
+
+starting permutation: s1b1 s2b1 s1d s1c s2u s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1d: DELETE FROM iso_basic WHERE i > 3;
+step s1c: COMMIT;
+step s2u: UPDATE iso_basic SET i = i * 2;
+step s2c: COMMIT;
+i
+-
+2
+4
+6
+(3 rows)
+
+i
+-
+2
+4
+6
+(3 rows)
+
+
+starting permutation: s1b2 s2b2 s2d s1u s2c s1c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2d: DELETE FROM iso_basic WHERE i > 1;
+step s1u: UPDATE iso_basic SET i = i * 3; <waiting ...>
+step s2c: COMMIT;
+step s1u: <... completed>
+ERROR:  could not serialize access due to concurrent delete
+step s1c: COMMIT;
+i
+-
+1
+(1 row)
+
+i
+-
+1
+(1 row)
+
+
+starting permutation: s1b2 s2b2 s2d s2c s1u s1c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2d: DELETE FROM iso_basic WHERE i > 1;
+step s2c: COMMIT;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s1c: COMMIT;
+i
+-
+3
+(1 row)
+
+i
+-
+3
+(1 row)
+
+
+starting permutation: s1b1 s2b1 s1u s2d s1c s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s2d: DELETE FROM iso_basic WHERE i > 1; <waiting ...>
+step s1c: COMMIT;
+step s2d: <... completed>
+step s2c: COMMIT;
+i
+-
+3
+(1 row)
+
+i
+-
+3
+(1 row)
+
+
+starting permutation: s1b1 s2b1 s1u s1c s2d s2c
+step s1b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s2b1: BEGIN ISOLATION LEVEL READ COMMITTED;
+step s1u: UPDATE iso_basic SET i = i * 3;
+step s1c: COMMIT;
+step s2d: DELETE FROM iso_basic WHERE i > 1;
+step s2c: COMMIT;
+i
+-
+(0 rows)
+
+i
+-
+(0 rows)
+
+
+starting permutation: s1b2 s2b2 s2u s1d s2c s1c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2u: UPDATE iso_basic SET i = i * 2;
+step s1d: DELETE FROM iso_basic WHERE i > 3; <waiting ...>
+step s2c: COMMIT;
+step s1d: <... completed>
+ERROR:  could not serialize access due to concurrent update
+step s1c: COMMIT;
+ i
+--
+ 2
+ 4
+ 6
+ 8
+10
+(5 rows)
+
+ i
+--
+ 2
+ 4
+ 6
+ 8
+10
+(5 rows)
+
+
+starting permutation: s1b2 s2b2 s2u s2c s1d s1c
+step s1b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2b2: BEGIN ISOLATION LEVEL REPEATABLE READ;
+step s2u: UPDATE iso_basic SET i = i * 2;
+step s2c: COMMIT;
+step s1d: DELETE FROM iso_basic WHERE i > 3;
+step s1c: COMMIT;
+i
+-
+2
+(1 row)
+
+i
+-
+2
+(1 row)
+
